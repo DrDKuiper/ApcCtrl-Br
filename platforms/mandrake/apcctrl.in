@@ -1,0 +1,76 @@
+#! /bin/sh
+#
+# apcctrl      This shell script takes care of starting and stopping
+#	       the apcctrl UPS monitoring daemon.
+#
+# chkconfig: 2345 60 99
+# description: apcctrl monitors power and takes action if necessary
+#
+
+### BEGIN INIT INFO
+# Provides: apcctrl
+# Required-Start: $network $syslog
+# Required-Stop: $network $syslog
+# Default-Start: 2 3 5
+# Default-Stop:
+# Description: Start the apcctrl daemon
+### END INIT INFO
+
+APCPID=@PIDDIR@/apcctrl.pid
+
+# Source function libarary
+. /etc/rc.d/init.d/functions
+
+if [ ! -x @sbindir@/apcctrl -o ! -r @sysconfdir@/apcctrl.conf ]; then
+    exit 0
+fi
+
+case "$1" in
+    start)
+       rm -f @PWRFAILDIR@/powerfail
+       rm -f @nologdir@/nologin
+# check for stale lockfiles
+       LOCKDIR=`grep "^LOCKFILE" @sysconfdir@/apcctrl.conf | awk '{ print $2}'`
+       DEVICE=`grep "^DEVICE" @sysconfdir@/apcctrl.conf | awk '{ print $2 }' | sed -e 's@/dev/@@g'`
+       if [ -z "${DEVICE}" ]; then
+          DEVICE=usb
+       fi
+       LOCKFILE="${LOCKDIR}/LCK..${DEVICE}"
+       if [ -f $LOCKFILE ]; then
+	  PID=`cat $LOCKFILE | awk '{ printf("%d",$1) }'`
+       else
+	  PID=""
+       fi
+       PIDREAL=`ps -e | awk '{print $1}' | grep "${PID}"`
+       if [ ! -z "$PID" -a ! "$PID" = "$PIDREAL" ]; then
+	  echo "Stale lockfile, removing $LOCKFILE"
+	  if [ -f $LOCKFILE ]; then
+	     rm -f $LOCKFILE
+	  fi
+       fi
+       echo -n "Starting UPS monitoring:" 
+       @sbindir@/apcctrl -f @sysconfdir@/apcctrl.conf && success || failure
+       echo
+       touch @LOCKDIR@/subsys/apcctrl
+       ;;
+    stop)
+       echo -n "Shutting down UPS monitoring:"
+       killproc apcctrl
+       echo
+       rm -f $APCPID
+       rm -f @LOCKDIR@/subsys/apcctrl
+       ;;
+    restart|reload)
+       $0 stop
+       sleep 15
+       $0 start
+       ;;
+    status)
+       @sbindir@/apcaccess status
+       ;;
+    *)
+       echo "Usage: $0 {start|stop|restart|reload|status}"
+       exit 1
+       ;;
+esac
+exit 0

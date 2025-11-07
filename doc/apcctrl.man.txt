@@ -1,0 +1,178 @@
+APCCTRL(8)		  BSD System Manager's Manual		    APCCTRL(8)
+
+NAME
+     apcctrl — a daemon for controlling most APC UPSes
+
+SYNOPSIS
+     apcctrl [-b] [-d level | --debug level] [-f file | --config-file file]
+	     [-P file | --pid-file file]
+	     [-p | --kill-on-powerfail | -t | --term-on-powerfail] [-R]
+
+     apcctrl [-k | --killpower | --hibernate | -o | --power-off]
+
+     apcctrl [-h | --help]
+
+     apcctrl [-V | --version]
+
+DESCRIPTION
+     The apcctrl daemon controls the operation of most American Power Conver‐
+     sion Corp (APC) UPSes.  During a power failure, apcctrl informs users
+     about the loss of utility power and that a shutdown may occur.  If util‐
+     ity power is not restored, a system shutdown will follow when the battery
+     is exhausted, a specified timeout expires, a specified battery charge
+     percentage is reached, or a specified battery runtime (based on internal
+     UPS calculations and determined by power consumption rates) expires.  If
+     the utility power is restored before one of the these shutdown conditions
+     is met, apcctrl will inform users of this and the shutdown will generally
+     be cancelled.  Refer to the Implementation Notes section below for situa‐
+     tions in which the shutdown may not be cancelled.
+
+     The meaning of the command line options is as follows:
+
+     -b 	 Run in the foreground, do not detach and become a daemon.
+
+     -d level --debug level
+		 Set debugging output level where level is a number greater
+		 than zero.
+
+     -f file --config-file file
+		 Load the specified configuration file.  The default configu‐
+		 ration file is /etc/apcctrl/apcctrl.conf.  It must be changed
+		 when running more than one copy of apcctrl on the same com‐
+		 puter to control multiple UPSes.
+
+     -k | --killpower | --hibernate
+		 Power down the UPS in hibernate mode after a 10 second delay.
+		 This option is normally only used by apcctrl itself to power
+		 down the UPS after a system shutdown has almost completed.
+		 In hibernate mode, the UPS will again supply power to the
+		 system when the utility power returns.
+
+     -o | --power-off
+		 Power down UPS completely. The UPS will not supply power to
+		 the system when the utility power returns.
+
+     -P file --pid-file file
+		 Create the specified process ID file. The default is
+		 /var/run/apcctrl.pid.	It must be changed when running more
+		 than one copy of apcctrl on the same computer to control mul‐
+		 tiple UPSes.
+
+     -p --kill-on-powerfail
+		 apcctrl commands the UPS to power down in hibernate mode just
+		 before apcctrl starts the system shutdown. This relies on the
+		 grace shutdown delay of a Smart-UPS being long enough to
+		 allow the system to shutdown completely before the UPS shuts
+		 off the power to the system and goes into hibernate mode.
+		 This shutdown grace delay is a programmable value stored in a
+		 Smart-UPS EEPROM which can be changed using apctest(8).  In
+		 hibernate mode, the UPS will again supply power to the system
+		 when the utility power returns. Refer to apcctrl.conf(5) for
+		 an alternative method using the KILLDELAY configuration
+		 directive and the only method available when using a Back-UPS
+		 or other UPS operating in simple signalling mode.
+
+     -t --term-on-powerfail
+		 apcctrl exits immediately when it issues the system shutdown
+		 command.  This behaviour is useful for those systems where it
+		 is not possible to insert apcctrl commands in a halt script
+		 to issue the killpower command.  Without this option, apcctrl
+		 will wait for the SIGTERM signal from the system shutdown
+		 process before exiting.
+
+     -R 	 Put a UPS which runs in smart signalling mode by default (eg
+		 a Smart-UPS) into simple signalling mode.
+
+     -v --version
+		 Prints the apcctrl version number and the program help.
+
+     -h --help	 Prints the program help.
+
+     The apcctrl daemon supports a networking mode called Network Information
+     Server  (NIS) -- not related  to Sun's NIS/YP -- in which the daemon
+     serves status and event information to clients over a network. See the
+     "Running The Network Information Server" section of the apcctrl manual
+     for more information and configuration details on this mode.
+
+     The apcctrl daemon also supports a Smart-UPS in SNMP mode provided an APC
+     Web/SNMP or APC PowerNet SNMP card is installed in the UPS's SmartSlot.
+     For more information and configuration details on this mode, refer to the
+     "Support for SNMP UPSes" section of the apcctrl manual.
+
+IMPLEMENTATION NOTES
+     The shutdown is made by calls to the script /etc/apcctrl/apccontrol by
+     the apcctrl daemon.  Consequently, no changes to /etc/inittab are neces‐
+     sary on Linux as there is no communication between the daemon and the
+     init(1) process.  Installation of the daemon modifies the halt script so
+     that at the end of the shutdown process, the daemon will be re-executed
+     to power off the UPS in hibernate mode.
+
+     On some operating systems (eg FreeBSD) there is no halt script so apccon‐
+     trol must be modified to cause the daemon to power off the UPS after a
+     delay.  Alternatives are to use the --kill-on-powerfail command on the
+     apcctrl command line or refer to apcctrl.conf(5) for details of the
+     KILLDELAY configuration directive.
+
+CONFIGURATION
+     It will almost certainly be necessary to customise the configuration
+     information in the /etc/apcctrl/apcctrl.conf configuration file to suit
+     your configuration and desired UPS behaviour.
+
+     For information on the configuration directives and the format of the
+     configuration file, refer to apcctrl.conf(5).
+
+EVENTS
+     apcctrl generates events when certain conditions occur.  These events are
+     sent to the system log and, optionally, to the temporary events file
+     (/var/log/apcctrl.events).  They also generate a call to  the
+     /etc/apcctrl/apccontrol script which in turn will call any custom scripts
+     placed in the /etc/apcctrl directory which may override apccontrol's
+     default behaviour. For details of the events and customising apccontrol's
+     behaviour, refer to apccontrol(8).
+
+DATA FILE FORMAT
+     If the DATATIME configuration directive is set to non-zero, apcctrl will
+     log a data record at the interval defined by the DATATIME directive. This
+     data record is in a format similar to the APC PowerChute software data
+     file format.
+
+STATUS REPORT FORMAT
+     The status report output format is simple ASCII. Generally there is a
+     single piece of information on each line of output. The content varies
+     based on the model of UPS being used and, in some cases, the firmware
+     version. This status report is also optionally written the the
+     /etc/apcctrl/apcctrl.status file. Refer to apcaccess(8) for full details
+     of the status report output.
+
+FILES
+     /etc/apcctrl/apcctrl.conf default configuration file
+
+     /var/run/apcctrl.pid default process ID file
+
+     /var/log/apcctrl.status optional status file
+
+     /var/log/apcctrl.events default events file
+
+SEE ALSO
+     apcctrl.conf(5), apcaccess(8), apccontrol(8), apctest(8).
+
+     The HTML apcctrl manual installed on your system or available online at
+     http://www.apcctrl.org/
+
+AUTHORS
+   This page
+     Trevor Roydhouse (current)
+     Andre M. Hedrick
+     Christopher J. Reimer
+
+   Software
+     Adam Kropelin (current Project Manager and Code Maintainer)
+     Kern Sibbald (former Project Manager and Code Maintainer)
+     Riccardo Facchetti (former Project Manager and Code Maintainer)
+     Andre M. Hedrick (Project Founder and former Code Maintainer)
+
+   Contributors
+     An enormous number of users who have devoted their time and energy to
+     this project -- thanks.
+
+apcctrl v3.14.6 	       January 10, 2009 	       apcctrl v3.14.6

@@ -1,0 +1,20 @@
+#!/sbin/runscript
+# Copyright 1999-2002 Gentoo Technologies, Inc.
+# Distributed under the terms of the GNU General Public License, v2 or later
+# $Header: /home/adk0212/src/cvs2svn/cvsrepo/apcctrl/platforms/gentoo/apcctrl.in,v 1.1 2002-09-14 12:03:18 rfacchetti Exp $
+
+APCPID=@PIDDIR@/apcctrl.pid
+APCCTRL=@sbindir@/apcctrl
+
+start() {
+	rm -f /etc/apcctrl/powerfail
+	ebegin "Starting APC UPS daemon"
+	start-stop-daemon --start --quiet --exec $APCCTRL -- 1>&2
+	eend $?
+}
+ 
+stop() {
+	ebegin "Stopping APC UPS daemon"
+	start-stop-daemon --stop --quiet --pidfile $APCPID
+	eend $?
+} 

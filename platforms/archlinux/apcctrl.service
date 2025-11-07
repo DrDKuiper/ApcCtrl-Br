@@ -1,0 +1,11 @@
+[Unit]
+Description=ApcCtrl é um software de código aberto e não oficial para nobreak APC® fabricados no Brasil.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/apcctrl.sh start
+ExecStop=/usr/bin/apcctrl.sh stop
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

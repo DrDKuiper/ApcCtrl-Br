@@ -1,0 +1,9 @@
+#!/bin/sh -e
+
+if [ "$1" = "purge" ] ; then
+    update-rc.d apcctrl remove >/dev/null
+    rm -f /etc/apcctrl/apcctrl.conf
+    rm -f /etc/apcctrl/apcctrl.status
+    rm -f /etc/apcctrl/apcctrl.events
+    rm -f /etc/apcctrl
+fi

@@ -1,0 +1,111 @@
+#! /bin/sh -e
+
+### BEGIN INIT INFO
+# Provides:          apcctrl
+# Required-Start:    $network $remote_fs rsyslog dbus 
+# Required-Stop:     $network $remote_fs rsyslog dbus
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start the APC UPS daemon to monitor power status
+# Description: This script will start APC UPS daemon as specified
+#              in @sysconfdir@/apcctrl.conf
+### END INIT INFO
+
+# apcctrl
+#     Start the APC UPS daemon to monitor power status.
+#
+# Modified for Debian GNU/Linux by Leon Breedt <ljb@debian.org>
+# Last update: Wed Jul 14 15:14:50 SAST 1999
+# Further modifications by Gordon Morehouse <spambox@evernex.com>
+# Last update: Sun Apr 08 19:07 PDT 2001 
+# Last modifications by Wagner Popov <wpopov@gmail.com>
+# Last update: Thu Nov 26 08:28:37 BRST 2015 
+
+# Get lsb functions
+. /lib/lsb/init-functions
+
+# to redirect stdout and stderr to some file, uncomment:
+# exec >>/var/log/apcctrl.stdout 1>>/var/log/apcctrl.stdout 2>>/var/log/apcctrl.stdout
+
+NAME=apcctrl
+DAEMONPID=@PIDDIR@/apcctrl.pid
+DAEMON=@sbindir@/apcctrl
+#to debug apcctrl or another arguments
+#DAEMON_ARGS="-d 100 -f /etc/apcctrl/apcctrl.conf"
+
+if [ ! -x $DAEMON ]; then
+    log_daemon_msg "APC UPS power management"
+    log_failure_msg "apcctrl not exists! Path: ${DAEMON}"
+    log_end_msg 1
+fi;
+
+start_apcctrl () {
+    rm -f @PWRFAILDIR@/powerfail
+    if [ ! -f @nologdir@/nologin.boot -a -f @nologdir@/nologin ]; then
+       rm -f @nologdir@/nologin
+       /etc/init.d/rmnologin start
+    fi
+    if [ "`pidof apcctrl`" = "" ]
+    then
+        if start-stop-daemon --start --quiet --pidfile $DAEMONPID --exec $DAEMON -- $DAEMON_ARGS; then
+            log_progress_msg "started!"
+            return 0
+        else
+            log_progress_msg "not started!"
+            return 1
+        fi             
+    else
+        log_failure_msg "A copy of the daemon is still running.  If you just stopped it, please wait about 5 seconds for it to shut down."
+        return 1
+    fi
+}
+
+stop_apcctrl () {
+    if start-stop-daemon --stop --quiet --pidfile $DAEMONPID; then
+        log_progress_msg "stopped!"
+        return 0
+    else
+        log_progress_msg "not stopped!"
+        return 1
+    fi
+}
+
+case "$1" in
+  start)
+        log_daemon_msg "Starting APC UPS power management"
+        if start_apcctrl; then
+                log_end_msg "0"
+        else
+                log_end_msg "1"
+        fi;
+  ;;
+  stop)
+        log_daemon_msg "Stopping APC UPS power management"
+        if stop_apcctrl; then
+                log_end_msg "0"
+        else
+                log_end_msg "1"
+        fi;
+  ;;
+  restart|force-reload)
+        log_daemon_msg "Restarting APC UPS power management"
+        if stop_apcctrl; then
+            :
+        fi;
+        sleep 10
+        if start_apcctrl; then
+                log_end_msg "0"
+        else
+                log_end_msg "1"
+        fi;
+  ;;
+  status)
+    @sbindir@/apcaccess status
+  ;;
+  *)
+    echo "Usage: /etc/init.d/apcctrl {start|stop|restart|force-reload|status}" >&2
+    exit 0
+  ;;
+esac
+
+exit 0

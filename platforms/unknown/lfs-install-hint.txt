@@ -1,0 +1,246 @@
+TITLE:		apcctrl
+LFS VERSION:	any 
+AUTHOR:		John McSwain <jmcswain@infoave.net>
+
+SYNOPSIS:
+	Installing apcctrl to protect an LFS system using APC UPS.    
+
+HINT:
+version 1.0 (06/27/2001)
+
+========================
+TABLE OF CONTENTS
+========================
+1 Introduction
+2 Software
+3 Installation
+  3.1 Generic
+  3.2 LFS specific
+      3.2.1 Boot script
+      3.2.2 Poweroff script
+      3.2.3 Symlink the scripts
+4 Configuration      
+5 Conclusion
+
+
+=================
+1. Introduction
+=================
+
+apcctrl is useful for controlling American Power Conversion's (APC)
+uninterruptiple power supplies (UPS).  apcctrl monitors the UPS and during a
+power loss, informs the system users of the failure, and if power is not 
+restored, safely shuts down the system.  The apcctrl manual (available on line
+at http://www.sibbald.com/apcctrl/manual/index.html or with the software)
+provides excellent instructions on installing and configuring the software.
+The configure script can identify several standard linux distributions and make
+the correct installation. However, as LFS is by design not standard this hint
+provides the information to protect an LFS system with an APC UPS using
+apcctrl.
+
+The installation of apcctrl is mostly straightforward until "make install" is
+completed. Then the LFS user will see the following series of messages:
+
+"Unknown distribution
+You have to manually install apcctrl boot script and
+halt script for clean emergency shutdown.
+Please contribute your distribution install to apcctrl team.
+I'm sorry: you are on your own."
+
+The purpose of this hint is to provide one method of accomplishing the above
+actions to get apcctrl up and running on the LFS "unknown" distribution.
+
+=================
+2. Software
+=================
+
+The apcctrl software can be found at these sites:
+
+http://www.oasi.gpa.it/riccardo/linux/apcctrl/
+http://www.sibbald.com/apcctrl/
+ftp://ftp.oasi.gpa.it/pub/apcctrl/
+
+As of this writing the latest stable release is apcctrl-3.8.1.  However 
+apcctrl-3.8.2Beta14 has been used with no problems by this author.
+
+
+===================
+3. Installation
+===================
+
+Obtain the source and unpack it in a suitable place such as /usr/src/.
+Compiler optimizations can be used with apcctrl.  See Optimization.txt hint
+and the apcctrl manual for more information.
+
+===================
+3.1 Generic
+===================
+Run the following command:
+
+./configure --prefix=/usr --sbindir=/sbin
+
+This is a basic installation.  If you have a smartups and wish to have a web
+interface to the APC unit's status from your web server see the apcctrl manual.
+You will probably want to run the above commands with additions:
+
+./configure --prefix=/usr --sbindir=/sbin \
+ --with-cgi-bin=/home/httpd/cgi-bin --enable-cgi
+
+Now run:
+
+make &&
+make install
+
+===================
+3.2 LFS specific
+===================
+
+At the end of the make install you will get the messages listed above in the
+introduction.  A bootscript and proper halt script must be manually
+installed.
+
+==================
+3.2.1 Bootscript
+==================
+
+Use the template script in /etc/init.d as a guide to make the boot script.
+
+cd /etc/init.d
+cp template apcctrl
+
+Now edit the apcctrl file to make the following bootscript:
+
+#!/bin/sh
+# Begin /etc/init.d/apcctrl
+#
+# S200 in /etc/rc{2,3,4,5}.d and K990 /etc/rc{0,1,6}.d
+#
+source /etc/init.d/functions
+
+case "$1" in
+        start)
+		# House keeping if this were a restart from powerfail
+		rm -f /etc/apcctrl/powerfail
+		rm -f /etc/nologin
+		# Start apcctrl
+                echo -n "Starting apcctrl power management ..."
+                loadproc /sbin/apcctrl
+                ;;
+
+        stop)
+                echo -n "Stopping apcctrl power management..."
+                killproc apcctrl
+                ;;
+
+        reload)
+                echo -n "Reloading apcctrl power management ..."
+                reloadproc apcctrl
+                ;;
+
+        restart)
+                $0 stop
+                sleep 1
+                $0 start
+                ;;
+
+        status)
+                statusproc apcctrl
+                ;;
+
+        *)
+                echo "Usage: $0 {start|stop|reload|restart|status}"
+                exit 1
+        ;;
+
+esac
+
+# End /etc/init.d/apcctrl
+
+
+=====================
+3.2.2 Poweroff script
+=====================
+
+This poweroff script is needed to shutdown the UPS after the system has halted.
+(Note: Depending on the UPS this could take a minute or two).  Thus when the 
+power returns the UPS will come back on and the system will power up (providing
+your atx bios supports powerup).  
+
+apcctrl for most distributions modifies the existing halt script.  Rather than
+that route we are making a separate script called UPSdown.
+
+Using a text editor create UPSdown as follows in /etc/init.d:
+
+#!/bin/sh
+# Begin /etc/init.d/UPSdown
+#
+# Script to shutdown UPS after computer shutdown
+#
+# Symlink in rc0.d after umounting filesystems
+#
+#
+# See if this is a powerfail situation
+if [ -f /etc/apcctrl/powerfail ]; then
+        echo
+        echo "APCCTRL will now power off the UPS"
+        echo
+        /etc/apcctrl/apccontrol killpower       
+        echo
+        echo "Verify the UPS shuts down or turn off the system"
+        echo
+fi
+#
+# End /etc/init.d/UPSdown
+
+
+=========================
+3.2.3 Symlink the scripts
+=========================
+The apcctrl daemon should be started fairly soon in the boot cycle to provide
+protection.  Using three digit symlinks, S200 for my system seems appropriate.
+Use your own judgement here.
+
+Stopping the daemon should occur fairly late.  I use K990.
+
+The UPSdown script should be run immediately prior to the halt script.  If
+halt is S999 then UPSdown would be S998.
+
+Run the following:
+
+cd /etc/init.d &&
+chmod 754 apcctrl UPSdown &&
+cd ../rc0.d &&
+ln -s ../init.d/apcctrl K990apcctrl &&
+ln -s ../init.d/UPSdown S998UPSdown &&
+cd ../rc1.d &&
+ln -s ../init.d/apcctrl K990apcctrl &&
+cd ../rc2.d &&
+ln -s ../init.d/apcctrl S200apcctrl &&
+cd ../rc3.d &&
+ln -s ../init.d/apcctrl S200apcctrl &&
+cd ../rc4.d &&
+ln -s ../init.d/apcctrl S200apcctrl &&
+cd ../rc5.d &&
+ln -s ../init.d/apcctrl S200apcctrl &&
+cd ../rc6.d &&
+ln -s ../init.d/apcctrl K990apcctrl
+
+
+================
+4. Configuration
+================
+
+Our generic configure in  3.1 above placed the configuration file in
+/etc/apcctrl.  This file is called apcctrl.conf.  Pleae consult the apcctrl
+manual to determine the settings for your system and APC model UPS.
+
+================
+5. Conclusion
+==============
+The above steps were an attempt to have you quickly provide APC UPS power
+protection to your system using apcctrl software.  The software allows the
+individual user a lot of options depending on his needs and desires.  For
+example I use the cgi feature to be able to see the status of my UPS from a
+browser.  I use the notification feature to mail the electric company that I
+have loss power.  These and other features along with a description of the
+workings of apcctrl are fully described in the apcctrl manual. 

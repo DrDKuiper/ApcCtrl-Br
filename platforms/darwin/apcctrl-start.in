@@ -1,0 +1,6 @@
+#!/bin/sh
+
+rm -f /etc/apcctrl/powerfail
+rm -f /etc/nologin
+
+@sbindir@/apcctrl $@

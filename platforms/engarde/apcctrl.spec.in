@@ -1,0 +1,160 @@
+
+%define initdir /etc/init.d
+
+Summary:      APC UPS Power Control Daemon for Linux
+Name:         apcctrl
+Version:      @VERSION@
+Release:      1
+Vendor:       APC UPS Daemon Team
+Distribution: The apcctrl Team
+Packager:     Kern Sibbald <kern@sibbald.com>
+URL:          http://www.sibbald.com/apcctrl/
+Source:       http://www.sibbald.com/apcctrl/%{name}-%{version}.tar.gz
+Group:        System Environment/Daemons
+Copyright:    GPL v2
+BuildRoot:    %{_tmppath}/%{name}-root
+
+%description
+apcctrl can be used for controlling most APC UPSes. During a
+power failure, apcctrl will inform the users about the power
+failure and that a shutdown may occur.  If power is not restored,
+a system shutdown will follow when the battery is exausted, a
+timeout (seconds) expires, or the battery runtime expires based
+on internal APC calculations determined by power consumption
+rates.  If the power is restored before one of the above shutdown
+conditions is met, apcctrl will inform users about this fact.
+Some features depend on what UPS model you have (simple or smart).
+
+
+%prep
+
+%setup
+
+%build
+
+%configure \
+        --prefix=%{_prefix} \
+        --sbindir=/sbin \
+        --sysconfdir=%{_sysconfdir}/apcctrl \
+        --with-cgi-bin=%{_sysconfdir}/apcctrl/cgi \
+        --enable-cgi \
+        --enable-pthreads
+
+make
+
+%install
+
+mkdir -p $RPM_BUILD_ROOT%{initdir}
+mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/apcctrl/cgi
+
+make \
+        prefix=$RPM_BUILD_ROOT%{_prefix} \
+        sbindir=$RPM_BUILD_ROOT/sbin \
+        sysconfdir=$RPM_BUILD_ROOT%{_sysconfdir}/apcctrl \
+        cgibin=$RPM_BUILD_ROOT%{_sysconfdir}/apcctrl/cgi \
+        mandir=$RPM_BUILD_ROOT%{_mandir} \
+        install-apcctrl install-cgi
+
+install -m744 distributions/redhat/apccontrol.sh \
+              $RPM_BUILD_ROOT%{_sysconfdir}/apcctrl/apccontrol
+install -m755 distributions/redhat/apcctrl $RPM_BUILD_ROOT%{initdir}
+
+
+%clean
+[ "$RPM_BUILD_ROOT" != "/" ] && rm -rf $RPM_BUILD_ROOT
+
+%files
+%defattr(-,root,root)
+%doc COPYING ChangeLog INSTALL TODO doc/* examples
+%dir /etc/apcctrl
+%dir /etc/apcctrl/cgi
+%{initdir}/apcctrl
+%config(noreplace) /etc/apcctrl/apccontrol
+%config(noreplace) /etc/apcctrl/changeme
+%config(noreplace) /etc/apcctrl/commfailure
+%config(noreplace) /etc/apcctrl/commok
+%config(noreplace) /etc/apcctrl/onbattery
+%config(noreplace) /etc/apcctrl/offbattery
+%config(noreplace) /etc/apcctrl/apcctrl.conf
+%config(noreplace) /etc/apcctrl/hosts.conf
+%config(noreplace) /etc/apcctrl/multimon.conf
+/etc/apcctrl/cgi/*
+/sbin/*
+%attr(-,root,man) %{_mandir}/*/*
+
+%pre
+
+%post
+
+# delete then add our links
+/sbin/chkconfig --del apcctrl
+/sbin/chkconfig --add apcctrl
+
+cp -f /etc/init.d/halt /etc/init.d/halt.old
+awk '# Stuff left over from a previous apcctrl, remove it
+/^# See if this is a powerfail situation\./ {
+   do {
+      getline
+   }  while (length($0) != 0)
+   getline
+}
+# We insert the new apcctrl code just before the following line
+/^# Now halt or reboot\./ {
+    print "# See if this is a powerfail situation.                               # ***apcctrl***"
+    print "if [ -f @PWRFAILDIR@/powerfail ]; then                                # ***apcctrl***"
+    print "   echo                                                               # ***apcctrl***"
+    print "   echo \"APCCTRL will now power off the UPS\"                          # ***apcctrl***"
+    print "   echo                                                               # ***apcctrl***"
+    print "   /etc/apcctrl/apccontrol killpower                                  # ***apcctrl***"
+    print "   echo                                                               # ***apcctrl***"
+    print "   echo \"Please ensure that the UPS has powered off before rebooting\" # ***apcctrl***"
+    print "   echo \"Otherwise, the UPS may cut the power during the reboot!!!\"   # ***apcctrl***"
+    print "   echo                                                               # ***apcctrl***"
+    print "fi                                                                    # ***apcctrl***"
+    print ""
+}
+# Everything else is duplicated 
+{ print } ' /etc/init.d/halt.old > /etc/init.d/halt
+
+chmod 744 /etc/init.d/halt
+
+# Undo things a bit
+
+%preun
+if [ $1 = 0 ] ; then
+        # stop running version (if any)                  
+        # I have removed the following because it sometimes produces
+        # an error message which may confuse someone.
+        #/sbin/service apcctrl stop
+
+        # remove startup links
+        /sbin/chkconfig --del apcctrl
+
+        # restore old halt script (hopefully)
+        #   mv -f /etc/init.d/halt.old /etc/init.d/halt
+
+        cp -f /etc/init.d/halt /etc/init.d/halt.old
+        awk '# Stuff added by apcctrl, remove it
+        /^# See if this is a powerfail situation\./ {
+           do {
+          getline
+           }  while (length($0) != 0)
+           getline
+        }
+        # Everything else is duplicated 
+        { print } ' /etc/init.d/halt.old > /etc/init.d/halt
+
+        chmod 744 /etc/init.d/halt
+fi
+
+%postun
+if [ "$1" -ge "1" ]; then
+        :
+        # /sbin/service apcctrl condrestart >/dev/null 2>&1 || :
+fi
+
+%changelog
+* Wed Sep 05 2001 kern@sibbald.com
+- Applied very nice patch to this spec by Giulio Orsero <giulioo@pobox.com>
+* Thu Sep 14 2000 kern@sibbald.com
+- Many thanks to Fredrik Persson and Neil Darlow for helping me write this spec file.

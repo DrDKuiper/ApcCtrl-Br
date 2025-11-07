@@ -1,0 +1,75 @@
+# UPSNAME xxx
+#   Nome do nobreak apenas para fins de organização
+UPSNAME
+
+# UPSCABLE <cable>
+#   É uma porta serial. Sempre defina o UPSCABLE como simple.
+UPSCABLE simple
+
+# UPSTYPE <driver>
+#   O projeto apcctrl possui uma série de drivers para os vários modelos de nobreak.
+#   No nosso caso, todos devem utilizar o driver brazil.
+UPSTYPE brazil
+
+# DEVICE /dev/ttyUSB*
+#   Device da porta serial. Caso você tenha feito a regra no udev esse caminho deve
+#   ser /dev/ttyUSB.nobreak
+DEVICE /dev/ttyUSB.nobreak
+
+# SCRIPTDIR <path to script directory>
+#   Camingo onde se encontra o arquivo apccontrol
+SCRIPTDIR /etc/apcctrl
+
+# PWRFAILDIR <path to powerfail directory>
+#   Esse caminho define onde o apcctrl irá escrever arquivos em tempo de execução
+#   no caso de um shutdown.
+PWRFAILDIR /etc/apcctrl
+
+# NOLOGINDIR <path to nologin directory>
+#   Quando é comandado um shutdown é criado um arquivo que impede novos logins
+NOLOGINDIR /etc
+
+# BATTEXPANDER <number integer>
+#   Esse parâmetro define se há uma expansão da bateria em AMPERES.
+#   por exemplo, uma bateria de 12Volts e 42 Amperes exige que você defina
+#   o valor como sendo 42. Caso o banco seja de 24V e 7A o valor deve ser
+#   igual a 7.
+BATTEXPANDER 0
+
+# BATTERYLEVEL <percentage>
+#   Se ocorrer uma falha na rede elétrica, essa deverá ser a porcentagem minima
+#   antes do shutdown. Caso o level fique abaixo desse valor será comandado
+#   o shutdown. Caso o parâmetro MINUTES seja atingido antes, será iniciado o
+#   shutdown.
+BATTERYLEVEL 25
+
+# MINUTES <minutes>
+#   Se ocorrer uma falha na rede elétrica, essa deverá ser o tempo mínimo
+#   de autonomia antes do shutdown. Caso a autonomia calculada fique abaixo
+#   desse valor, será iniciado o shutdown. Caso o parâmetro BATTERYLEVEL
+#   seja atingido primeiro, será iniciado o shutdown.
+MINUTES 10
+
+# TIMEOUT <seconds>
+#   Independente dos parâmetros acima, se na ocorrência de falha na rede
+#   elétrica esse parâmetro define quantos segundos o servidor deve operar
+#   nessa condição. Caso o valor seja 0 esse timer será desabilitado.
+TIMEOUT 0
+
+# KILLDELAY <seconds>
+#   Caso esse parâmetro seja maior que zero, o apcctrl continuará a rodar
+#   após o shutdown e fará o shutdown após esse período. Esse parâmetro
+#   é útil quando o sistema operacional não aciona o apcctrl no momento
+#   final do hangout. NÃO FOI TESTADO
+KILLDELAY 0
+
+# NETSERVER, NISIP, NISPORT definem o driver de rede do apcctrl e são
+# importantes para a aplicação apcaccess e para que possa ser acessado por
+# outros servidores.
+NETSERVER on
+NISIP 0.0.0.0
+NISPORT 3551
+
+# Log
+EVENTSFILE /var/log/apcctrl.events
+EVENTSFILEMAX 10

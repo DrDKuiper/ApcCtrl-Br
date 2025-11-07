@@ -1,0 +1,11 @@
+/etc/apcctrl/apcctrl.conf
+/etc/init.d/apcctrl
+/etc/logrotate.d/apcctrl
+/etc/apcctrl/hosts.conf
+/etc/apcctrl/multimon.conf
+/etc/apcctrl/apccontrol
+/etc/apcctrl/changeme
+/etc/apcctrl/commfailure
+/etc/apcctrl/commok
+/etc/apcctrl/offbattery
+/etc/apcctrl/onbattery

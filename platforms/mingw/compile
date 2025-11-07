@@ -1,0 +1,179 @@
+#!/bin/bash
+
+
+apcctrl_error()
+{
+	echo -en "\e[31m\e[5m"
+	echo -en "\nERROR!!! "
+	echo -n "$1"
+	echo -en "!!!\n\n"
+	echo -en "\e[49m\e[39m\e[0m"
+
+	export PATH="${PATH_OLD}"
+	echo -e "RESTORE PATH=${PATH}"
+	echo -e "********************* FIM ********************"
+
+	exit 2
+}
+
+apcctrl_mingw()
+{
+	echo "mingw..."
+	mingw32-g++ -v &>.out.mingw
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.mingw
+	return 1;
+}
+apcctrl_path()
+{
+	echo "path..."
+	if [[ -e "${APCCTRL_PATH}" ]]; then
+		apcctrl_error "O Caminho ${APCCTRL_PATH} já existe"
+	fi;
+	return 0;
+}
+apcctrl_svn()
+{
+	echo "svn..."
+	svn checkout http://svn.code.sf.net/p/apcupsd-brazil/svn/tags/${TAG} ${APCCTRL_PATH} &>.out.svn
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.svn
+	return 1;
+}
+
+apcctrl_configure()
+{
+	echo "configure..."
+	cd ${APCCTRL_PATH}
+	CONFIG=$(./configure --host=mingw32 \
+	       --prefix=/apcctrl \
+	       --sbindir=/apcctrl/bin \
+	       --sysconfdir=/apcctrl/etc/apcctrl \
+	       --with-pid-dir=/apcctrl/etc/apcctrl \
+	       --mandir=/apcctrl \
+	       --enable-net \
+	       --disable-apcsmart \
+	       --disable-dumb \
+	       --disable-snmp \
+	       --disable-usb \
+	       --disable-net-snmp \
+	       --disable-test \
+	       --disable-pcnet \
+	       --disable-modbus-usb \
+	       --disable-modbus \
+	       --enable-cgi &>.out.configure
+	)
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.configure
+	return 1;
+}
+
+apcctrl_make()
+{
+	echo "make..."
+	cd ${APCCTRL_PATH}
+	make &>.out.make
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.make
+	return 1;
+
+}
+
+apcctrl_installer() 
+{
+	echo "installer..."
+	cd ${APCCTRL_PATH}/platforms/mingw/
+	make winapcctrl.exe &>.out.installer
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.installer
+	return 1;
+}
+apcctrl_scp()
+{
+	echo "scp..."
+	scp ${APCCTRL_PATH}/platforms/mingw/installer/winapcctrl-${TAG}.exe ${REMOTE_USER}@${REMOTE_SERVER}:${REMOTE_PATH} &>.out.scp
+	if [[ $? == "0" ]]; then
+		return 0;
+	fi;
+
+	cat .out.scp
+	return 1;
+}
+
+if [[ -z "$1" ]]; then
+	apcctrl_error "Utilize o formato:
+compile TAG_NUMBER
+TAG_NUMBER = x.x.x"
+fi;
+
+TAG=$(echo "${1}" | sed -n '/[0-9]\+\.[0-9]\+\.[0-9]\+/p')
+
+if [[ -z "${TAG}" ]]; then
+	apcctrl_error "Utilize o formato:
+compile TAG_NUMBER
+TAG_NUMBER = x.x.x"
+fi;
+
+REMOTE_USER="wagner"
+REMOTE_SERVER="192.168.22.4"
+REMOTE_PATH=/home/wagner/workspace/apcctrl_brazil_tars
+
+APCCTRL_PATH="/home/wagner/apcctrl/apcctrl-${TAG}"
+
+PATH_OLD="${PATH}"
+export PATH="/home/wagner/apcctrl/cross-tools/mingw32/bin:${PATH}"
+
+echo -en "APCCTRL_PATH=${APCCTRL_PATH}\n"
+echo -en "PATH=${PATH}\n\n"
+
+apcctrl_path
+if [[ $? != "0" ]]; then
+	apcctrl_error path
+fi;
+apcctrl_mingw
+if [[ $? != "0" ]]; then
+	apcctrl_error mingw
+fi;
+apcctrl_svn
+if [[ $? != "0" ]]; then
+	apcctrl_error svn
+fi;
+apcctrl_configure
+if [[ $? != "0" ]]; then
+	apcctrl_error configure
+fi;
+apcctrl_make
+if [[ $? != "0" ]]; then
+	apcctrl_error make
+fi;
+apcctrl_installer
+if [[ $? != "0" ]]; then
+	apcctrl_error installer
+fi;
+apcctrl_scp
+if [[ $? != "0" ]]; then
+	apcctrl_error scp
+fi;
+
+echo -en "\e[40m\e[32m\e[5m"
+echo -en "\nSUCESS!!! File: ${APCCTRL_PATH}/platforms/mingw/installer/winapcctrl-${TAG}.exe\n";
+echo -en "\e[49m\e[39m\e[0m"
+
+export PATH="${PATH_OLD}"
+echo -e "RESTORE PATH=${PATH}"
+echo -e "********************* FIM ********************"

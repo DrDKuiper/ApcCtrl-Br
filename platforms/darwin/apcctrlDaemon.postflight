@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Ensure kext cache is rebuilt
+touch /System/Library/Extensions
+
+if [ -f /etc/apcctrl/apcctrl.conf.SAVE ] ; then
+	# Appears to be an upgrade, so move user's original apcctrl.conf
+	# back into place and save new one as apcctrl.conf.new.
+	mv /etc/apcctrl/apcctrl.conf /etc/apcctrl/apcctrl.conf.new
+	mv /etc/apcctrl/apcctrl.conf.SAVE /etc/apcctrl/apcctrl.conf
+else
+	# Looks like a new install, so open apcctrl.conf in an editor
+	# along with a message describing what to do.
+	open -t /etc/apcctrl/apcctrl.conf
+fi

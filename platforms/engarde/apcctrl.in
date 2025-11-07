@@ -1,0 +1,48 @@
+#! /bin/sh
+#
+# chkconfig: 2345 20 99
+# description: apcctrl monitors power and takes action if necessary
+# processname: apcctrl
+# pidfile: @PIDDIR@/apcctrl.pid
+# config: @sysconfdir@/apcctrl.conf
+
+APCPID=@PIDDIR@/apcctrl.pid
+
+# Source function library.
+. /etc/init.d/functions
+
+[ -f @sbindir@/apcctrl ] || exit 0
+[ -f @sysconfdir@/apcctrl.conf ] || exit 0
+
+# See how we were called.
+case "$1" in
+  start)
+       echo -n "               APCCTRL UPS monitor      "
+       rm -f @PWRFAILDIR@/powerfail
+       rm -f @nologdir@/nologin
+       daemon @sbindir@/apcctrl -f @sysconfdir@/apcctrl.conf
+       echo
+       touch @LOCKDIR@/apcctrl
+       ;;
+  stop)
+       echo -n "               APCCTRL UPS monitor      "
+       killproc apcctrl
+       echo
+       rm -f $APCPID
+       rm -f @LOCKDIR@/apcctrl
+       ;;
+  restart)
+       $0 stop
+       sleep 15
+       $0 start
+       ;;
+  status)
+       status apcctrl
+       @sbindir@/apcaccess status
+       ;;
+  *)
+       echo "Usage: apcctrl {start|stop|restart|status}"
+       exit 1
+esac
+
+exit 0

@@ -1,0 +1,13 @@
+"/var/log/apcctrl.log" {
+       rotate 7
+       daily
+       compress
+       missingok
+}
+
+"/var/log/apcctrl.events" {
+       rotate 7
+       daily
+       compress
+       missingok
+}
