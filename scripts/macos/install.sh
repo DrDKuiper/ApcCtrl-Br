@@ -58,14 +58,25 @@ else
 fi
 
 # 3) Regenerate ./configure from autoconf/configure.in
-if [[ ! -f ./configure ]]; then
-  echo "Generating ./configure from autoconf/configure.in ..."
-  make configure
+# Always (re)generate configure to pick up local autoconf changes
+echo "Regenerating ./configure from autoconf/configure.in ..."
+if ! make configure; then
+  echo "Warning: could not regenerate configure (missing autoconf?) — continuing with existing ./configure" >&2
 fi
 # Ensure ./configure is executable even if checked out without +x
 chmod +x ./configure || true
 # Ensure mkinstalldirs is executable (some checkouts lose +x)
 chmod +x autoconf/mkinstalldirs || true
+
+# Patch generated ./configure to invoke mkinstalldirs via 'sh' if needed
+if grep -q 'MKINSTALLDIRS="$ac_aux_dir/mkinstalldirs"' ./configure; then
+  echo "Patching configure to wrap mkinstalldirs with sh (aux_dir)"
+  sed -i '' -e 's|MKINSTALLDIRS=\"\$ac_aux_dir/mkinstalldirs\"|MKINSTALLDIRS=\"sh \$ac_aux_dir/mkinstalldirs\"|g' ./configure || true
+fi
+if grep -q 'MKINSTALLDIRS="\\$(topdir)/autoconf/mkinstalldirs"' ./configure; then
+  echo "Patching configure to wrap mkinstalldirs with sh (topdir)"
+  sed -i '' -e 's|MKINSTALLDIRS=\"\\\$(topdir)/autoconf/mkinstalldirs\"|MKINSTALLDIRS=\"sh \\\$(topdir)/autoconf/mkinstalldirs\"|g' ./configure || true
+fi
 
 # 4) Clean caches/old vars and reconfigure (force fallback for gethostbyname_r)
 rm -f config.cache config.log config.status include/apcconfig.h autoconf/variables.mak || true
