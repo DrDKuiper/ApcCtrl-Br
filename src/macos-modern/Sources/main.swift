@@ -189,8 +189,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startTimer() {
         timer?.invalidate()
         let interval = max(2.0, TimeInterval(Settings.shared.refreshSeconds))
+        print("[Timer] Starting with interval: \(interval)s")
         // Create timer and add to main run loop in common mode (keeps firing during menu/window interactions)
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            print("[Timer] Poll triggered at \(Date())")
             self?.poll()
         }
         timer = t
@@ -211,10 +213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func poll() {
+        print("[Poll] Starting fetch at \(Date())")
         // Run fetch in background to avoid blocking timer
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             let (state, dict) = self.client.fetchStatus()
+            print("[Poll] Fetched status: \(dict["STATUS"] ?? "N/A"), state: \(state)")
             
             // Update UI on main thread
             DispatchQueue.main.async {
@@ -291,17 +295,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostField = NSTextField(string: Settings.shared.host)
         hostField.placeholderString = "Host"
+        hostField.isEditable = true
+        hostField.isSelectable = true
+        
         let portField = NSTextField(string: String(Settings.shared.port))
         portField.placeholderString = "Porta"
+        portField.isEditable = true
+        portField.isSelectable = true
+        
         let refreshField = NSTextField(string: String(Settings.shared.refreshSeconds))
         refreshField.placeholderString = "Intervalo (s)"
+        refreshField.isEditable = true
+        refreshField.isSelectable = true
 
         let tgEnabled = NSButton(checkboxWithTitle: "Enviar alertas via Telegram", target: nil, action: nil)
         tgEnabled.state = Settings.shared.telegramEnabled ? .on : .off
+        
         let tgTokenField = NSTextField(string: Settings.shared.telegramBotToken)
         tgTokenField.placeholderString = "Bot Token"
+        tgTokenField.isEditable = true
+        tgTokenField.isSelectable = true
+        
         let tgChatField = NSTextField(string: Settings.shared.telegramChatId)
         tgChatField.placeholderString = "Chat ID"
+        tgChatField.isEditable = true
+        tgChatField.isSelectable = true
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -313,8 +331,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let label = NSTextField(labelWithString: title)
             label.alignment = .right
             label.font = .systemFont(ofSize: 12)
+            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            NSLayoutConstraint.activate([label.widthAnchor.constraint(greaterThanOrEqualToConstant: 100)])
             h.addArrangedSubview(label)
-            field.frame.size.width = 160
+            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            NSLayoutConstraint.activate([field.widthAnchor.constraint(greaterThanOrEqualToConstant: 200)])
             h.addArrangedSubview(field)
             return h
         }
@@ -328,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     stack.addArrangedSubview(labeled("Bot Token", tgTokenField))
     stack.addArrangedSubview(labeled("Chat ID", tgChatField))
         stack.translatesAutoresizingMaskIntoConstraints = false
-    stack.setFrameSize(NSSize(width: 340, height: 200))
+    stack.setFrameSize(NSSize(width: 420, height: 240))
 
         alert.accessoryView = stack
         let response = alert.runModal()
