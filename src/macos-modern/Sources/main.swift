@@ -25,43 +25,48 @@ final class NisClient {
         let semaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             defer { semaphore.signal() }
-            guard let streamPair = self.openStream() else { return }
-            let (input, output) = streamPair
-            let cmd = "status\n"
-            if let data = cmd.data(using: .ascii) {
-                data.withUnsafeBytes { ptr in
-                    guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-                    output.write(base, maxLength: data.count)
-                }
-            }
-            output.close() // server pushes status then closes
-
-            let bufferSize = 4096
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-            defer { buffer.deallocate() }
-            var data = Data()
-            while true {
-                let read = input.read(buffer, maxLength: bufferSize)
-                if read <= 0 { break } // 0 = EOF, -1 = error
-                data.append(buffer, count: read)
-                if read < bufferSize { /* likely end of data */ }
-            }
-            input.close()
-
-            if let text = String(data: data, encoding: .ascii) {
-                for line in text.split(separator: "\n") {
-                    let parts = line.split(separator: ":", maxSplits: 1)
-                    if parts.count == 2 {
-                        let key = parts[0].trimmingCharacters(in: .whitespaces)
-                        let value = parts[1].trimmingCharacters(in: .whitespaces)
-                        dict[key] = value
+            if let (input, output) = self.openStream() {
+                let cmd = "status\n"
+                if let data = cmd.data(using: .ascii) {
+                    data.withUnsafeBytes { ptr in
+                        guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                        output.write(base, maxLength: data.count)
                     }
                 }
-                // Determine state heuristics using NIS fields
-                if dict["STATUS"]?.contains("COMMLOST") == true { state = .commlost }
-                else if dict["STATUS"]?.contains("ONBATT") == true { state = .onbatt }
-                else if dict["BCHARGE"].flatMap({ Double($0.split(separator: " ").first ?? "0") }) ?? 100 < 100 { state = .charging }
-                else { state = .online }
+                output.close() // server pushes status then closes
+
+                let bufferSize = 4096
+                let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+                defer { buffer.deallocate() }
+                var raw = Data()
+                while true {
+                    let read = input.read(buffer, maxLength: bufferSize)
+                    if read <= 0 { break } // 0 = EOF, -1 = error
+                    raw.append(buffer, count: read)
+                }
+                input.close()
+
+                if let text = String(data: raw, encoding: .ascii) {
+                    dict = self.parseKeyValueText(text)
+                }
+            }
+
+            // Fallback: if NIS didn't return anything usable, try running apcaccess locally
+            if dict.isEmpty || dict["STATUS"] == nil {
+                if let text = self.runApcaccess() {
+                    dict = self.parseKeyValueText(text)
+                }
+            }
+
+            // Determine state heuristics using fields (NIS or apcaccess)
+            if let status = dict["STATUS"] {
+                if status.contains("COMMLOST") { state = .commlost }
+                else if status.contains("ONBATT") { state = .onbatt }
+                else if status.contains("ONLINE") { state = .online }
+                else { state = .charging }
+            } else {
+                // If we still have no status but have charge < 100, call charging
+                if dict["BCHARGE"].flatMap({ Double($0.split(separator: " ").first ?? "0") }) ?? 100 < 100 { state = .charging }
             }
         }
         _ = semaphore.wait(timeout: .now() + timeout)
@@ -108,6 +113,53 @@ final class NisClient {
         Stream.getStreamsToHost(withName: host, port: port, inputStream: &inS, outputStream: &outS)
         guard let i = inS, let o = outS else { return nil }
         i.open(); o.open(); return (i,o)
+    }
+
+    // Parse KEY : VALUE lines common to NIS and apcaccess outputs
+    private func parseKeyValueText(_ text: String) -> [String: String] {
+        var d: [String: String] = [:]
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 {
+                let key = parts[0].trimmingCharacters(in: .whitespaces)
+                let value = parts[1].trimmingCharacters(in: .whitespaces)
+                d[key] = value
+            }
+        }
+        return d
+    }
+
+    // Try executing apcaccess to fetch local status when NIS is unavailable
+    private func runApcaccess() -> String? {
+        let candidates = [
+            "/opt/homebrew/sbin/apcaccess", "/opt/homebrew/bin/apcaccess",
+            "/usr/local/sbin/apcaccess", "/usr/local/bin/apcaccess",
+            "/usr/sbin/apcaccess", "/usr/bin/apcaccess", "apcaccess"
+        ]
+        for path in candidates {
+            let proc = Process()
+            if path == "apcaccess" {
+                proc.launchPath = "/usr/bin/env"
+                proc.arguments = ["apcaccess"]
+            } else {
+                if !FileManager.default.isExecutableFile(atPath: path) { continue }
+                proc.launchPath = path
+            }
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = Pipe()
+            do {
+                try proc.run()
+            } catch {
+                continue
+            }
+            let data = try? pipe.fileHandleForReading.readToEnd()
+            proc.waitUntilExit()
+            if let data = data, let text = String(data: data, encoding: .ascii), !text.isEmpty {
+                return text
+            }
+        }
+        return nil
     }
 }
 
