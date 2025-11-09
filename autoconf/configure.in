@@ -279,6 +279,22 @@ AC_SEARCH_LIBS(gethostbyname_r, [nsl resolv])
 # The condition in this test copes with the presence of inet_addr in libc6.
 AC_SEARCH_LIBS(inet_addr, nsl)
 
+dnl ---------------------------------------------------------------
+dnl MacOS / platforms sem gethostbyname_r: aceitar fallback
+dnl ---------------------------------------------------------------
+AC_MSG_CHECKING([for gethostbyname_r presence])
+AC_LINK_IFELSE([
+   AC_LANG_PROGRAM([[#include <netdb.h>]], [[
+      const char *h = "example.com"; (void)gethostbyname_r; /* refer symbol */
+   ]])
+],[have_r=yes],[have_r=no])
+AC_MSG_RESULT([$have_r])
+
+if test "$have_r" = "no"; then
+   AC_MSG_WARN([gethostbyname_r not found, using non-threadsafe gethostbyname fallback])
+   AC_DEFINE(HAVE_FUNC_GETHOSTBYNAME_R_0,1,[Fallback: use gethostbyname()])
+fi
+
 dnl Needed by Interactive UNIX System V/386 Release 3.2
 AC_CHECK_FUNC(strchr,
    AC_MSG_RESULT([using libc's strchr]),
@@ -834,7 +850,9 @@ case "$ac_cv_func_which_gethostbyname_r" in
    ;;
 
    *)
-   AC_MSG_ERROR([gethostbyname_r is required])
+   AC_MSG_WARN([gethostbyname_r variant not detected; falling back to gethostbyname])
+   AC_DEFINE(HAVE_FUNC_GETHOSTBYNAME_R_0,, [Define if system does not have gethostbyname_r])
+   GAPCMON_CFLAGS="$GAPCMON_CFLAGS -DHAVE_FUNC_GETHOSTBYNAME_R_0"
    ;;
 esac
 
