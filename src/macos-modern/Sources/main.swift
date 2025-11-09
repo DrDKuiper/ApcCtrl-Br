@@ -28,7 +28,12 @@ final class NisClient {
             guard let streamPair = self.openStream() else { return }
             let (input, output) = streamPair
             let cmd = "status\n"
-            output.write(cmd.data(using: .ascii)!, maxLength: cmd.count)
+            if let data = cmd.data(using: .ascii) {
+                data.withUnsafeBytes { ptr in
+                    guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                    output.write(base, maxLength: data.count)
+                }
+            }
             output.close() // server pushes status then closes
 
             let bufferSize = 4096
@@ -69,7 +74,12 @@ final class NisClient {
             defer { semaphore.signal() }
             guard let (input, output) = self.openStream() else { return }
             let cmd = "events\n"
-            output.write(cmd.data(using: .ascii)!, maxLength: cmd.count)
+            if let data = cmd.data(using: .ascii) {
+                data.withUnsafeBytes { ptr in
+                    guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                    output.write(base, maxLength: data.count)
+                }
+            }
             output.close()
 
             let bufferSize = 4096
