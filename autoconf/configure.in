@@ -931,10 +931,10 @@ dnl find the mkinstalldirs script in another subdir than ($topdir).
 dnl Try to locate it.
 MKINSTALLDIRS=
 if test -n "$ac_aux_dir"; then
-   MKINSTALLDIRS="$ac_aux_dir/mkinstalldirs"
+   MKINSTALLDIRS="sh $ac_aux_dir/mkinstalldirs"
 fi
 if test x$MKINSTALLDIRS = x ; then
-   MKINSTALLDIRS="\$(topdir)/autoconf/mkinstalldirs"
+   MKINSTALLDIRS="sh \$(topdir)/autoconf/mkinstalldirs"
 fi
 AC_SUBST(MKINSTALLDIRS)
 

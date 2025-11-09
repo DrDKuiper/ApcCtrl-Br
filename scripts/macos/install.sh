@@ -64,6 +64,8 @@ if [[ ! -f ./configure ]]; then
 fi
 # Ensure ./configure is executable even if checked out without +x
 chmod +x ./configure || true
+# Ensure mkinstalldirs is executable (some checkouts lose +x)
+chmod +x autoconf/mkinstalldirs || true
 
 # 4) Clean caches/old vars and reconfigure (force fallback for gethostbyname_r)
 rm -f config.cache config.log config.status include/apcconfig.h autoconf/variables.mak || true
