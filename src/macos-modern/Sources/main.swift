@@ -433,9 +433,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func sendTelegram(body: String) {
         let s = Settings.shared
-        guard s.telegramEnabled, !s.telegramBotToken.isEmpty, !s.telegramChatId.isEmpty else { return }
+        guard s.telegramEnabled, !s.telegramBotToken.isEmpty, !s.telegramChatId.isEmpty else {
+            print("[Telegram] Skipped (not enabled or missing credentials)")
+            return
+        }
         let token = s.telegramBotToken
-        guard let url = URL(string: "https://api.telegram.org/bot\(token)/sendMessage") else { return }
+        guard let url = URL(string: "https://api.telegram.org/bot\(token)/sendMessage") else {
+            print("[Telegram] Invalid bot token URL")
+            return
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -444,7 +450,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "text": body
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
-        URLSession.shared.dataTask(with: req) { _,_,_ in }.resume()
+        print("[Telegram] Sending to chat \(s.telegramChatId): \(body)")
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            if let error = error {
+                print("[Telegram] Error: \(error.localizedDescription)")
+                return
+            }
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[Telegram] HTTP \(httpResponse.statusCode)")
+                if httpResponse.statusCode != 200, let data = data, let responseText = String(data: data, encoding: .utf8) {
+                    print("[Telegram] Response: \(responseText)")
+                }
+            }
+        }.resume()
     }
 
     // Somente disponível quando rodando como .app (Bundle válido) – evita crash do UNUserNotificationCenter
