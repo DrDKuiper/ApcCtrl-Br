@@ -17,7 +17,7 @@ final class NisClient {
 
     enum UpsState: String { case commlost, onbatt, charging, online }
 
-    func fetchStatus(timeout: TimeInterval = 2.0) -> (UpsState, [String:String]) {
+    func fetchStatus(timeout: TimeInterval = 3.0) -> (UpsState, [String:String]) {
         var dict: [String:String] = [:]
         var state: UpsState = .commlost
 
@@ -40,10 +40,11 @@ final class NisClient {
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
             defer { buffer.deallocate() }
             var data = Data()
-            while input.hasBytesAvailable {
+            while true {
                 let read = input.read(buffer, maxLength: bufferSize)
-                if read <= 0 { break }
+                if read <= 0 { break } // 0 = EOF, -1 = error
                 data.append(buffer, count: read)
+                if read < bufferSize { /* likely end of data */ }
             }
             input.close()
 
@@ -67,7 +68,7 @@ final class NisClient {
         return (state, dict)
     }
 
-    func fetchEvents(timeout: TimeInterval = 2.0) -> [String] {
+    func fetchEvents(timeout: TimeInterval = 3.0) -> [String] {
         var events: [String] = []
         let semaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
@@ -86,7 +87,7 @@ final class NisClient {
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
             defer { buffer.deallocate() }
             var data = Data()
-            while input.hasBytesAvailable {
+            while true {
                 let read = input.read(buffer, maxLength: bufferSize)
                 if read <= 0 { break }
                 data.append(buffer, count: read)
@@ -125,8 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.shared.load()
         client = NisClient(host: Settings.shared.host, port: Settings.shared.port)
         constructMenu()
-        // Solicitar permissão para notificações
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        // Solicitar permissão para notificações (somente quando rodando dentro de um .app bundle)
+        if canUseUserNotifications() {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        }
         poll()
         startTimer()
     }
@@ -140,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Eventos", action: #selector(showEvents), keyEquivalent: "e"))
+        menu.addItem(NSMenuItem(title: "Notificação de teste", action: #selector(sendTestNotification), keyEquivalent: "n"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
         menu.addItem(NSMenuItem(title: "Autoteste (em breve)", action: #selector(runSelfTestPlaceholder), keyEquivalent: "t"))
@@ -273,11 +277,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func postNotification(title: String, body: String) {
+        guard canUseUserNotifications() else {
+            // Em modo "swift run" (sem bundle .app), ignorar silenciosamente ou usar um alerta simples
+            // simpleAlert(title: title, message: body) // opcional: descomente se quiser alertas modais
+            return
+        }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+
+    // Somente disponível quando rodando como .app (Bundle válido) – evita crash do UNUserNotificationCenter
+    private func canUseUserNotifications() -> Bool {
+        // bundleIdentifier e sufixo .app são bons indicativos de app empacotado
+        if Bundle.main.bundleIdentifier == nil { return false }
+        let path = Bundle.main.bundleURL.path.lowercased()
+        return path.hasSuffix(".app")
+    }
+
+    @objc func sendTestNotification() {
+        postNotification(title: "APC UPS", body: "Notificação de teste")
     }
 }
 
