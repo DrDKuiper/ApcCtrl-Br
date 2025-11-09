@@ -181,7 +181,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         constructMenu()
         // Solicitar permissão para notificações (somente quando rodando dentro de um .app bundle)
         if canUseUserNotifications() {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+                print("[Notifications] Permission granted: \(granted), error: \(String(describing: error))")
+                if granted {
+                    print("[Notifications] Alerts enabled. You can now receive notifications.")
+                } else {
+                    print("[Notifications] Permission denied. Enable in System Settings → Notifications → ApcCtrl")
+                }
+            }
+        } else {
+            print("[Notifications] Not running as .app bundle, notifications disabled")
         }
         poll()
         startTimer()
@@ -240,8 +249,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let currentStatus = dict["STATUS"] ?? ""
                 var appendedSynthetic = false
                 if nisEvents.isEmpty {
-                    if !currentStatus.isEmpty && currentStatus != self.lastStatusText {
-                        let line = "\(self.timestamp()) Status: \(currentStatus)"
+                    // Se ainda não temos eventos, criar um inicial
+                    if self.eventsCache.isEmpty && !currentStatus.isEmpty {
+                        let line = "\(self.timestamp()) Inicializado - Status: \(currentStatus)"
+                        self.eventsCache.append(line)
+                        self.lastStatusText = currentStatus
+                        appendedSynthetic = true
+                    } else if !currentStatus.isEmpty && currentStatus != self.lastStatusText {
+                        let line = "\(self.timestamp()) Mudança - Status: \(currentStatus)"
                         self.eventsCache.append(line)
                         appendedSynthetic = true
                         self.lastStatusText = currentStatus
@@ -274,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Status"
             window.setContentSize(NSSize(width: 480, height: 520))
             window.styleMask = [.titled, .closable, .resizable]
+            window.appearance = NSAppearance(named: .aqua) // Force system theme following
             statusWindow = window
         }
         statusWindow?.makeKeyAndOrderFront(nil)
@@ -398,15 +414,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func postNotification(title: String, body: String) {
         guard canUseUserNotifications() else {
-            // Em modo "swift run" (sem bundle .app), ignorar silenciosamente ou usar um alerta simples
-            // simpleAlert(title: title, message: body) // opcional: descomente se quiser alertas modais
+            print("[Notifications] Skipped (not in .app bundle): \(title) - \(body)")
             return
         }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        content.sound = .default
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("[Notifications] Error sending: \(error)")
+            } else {
+                print("[Notifications] Sent: \(title) - \(body)")
+            }
+        }
     }
 
     private func sendTelegram(body: String) {
@@ -488,6 +510,7 @@ struct StatusView: View {
     let fetchStatus: () -> [String: String]
     @State private var statusData: [String: String] = [:]
     @State private var timer: Timer?
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         ScrollView {
@@ -511,7 +534,7 @@ struct StatusView: View {
                     Button("Atualizar") { refresh() }
                 }
                 .padding()
-                .background(Color(nsColor: .controlBackgroundColor))
+                .background(cardBackground)
                 .cornerRadius(8)
                 
                 // Battery & Load
@@ -519,12 +542,14 @@ struct StatusView: View {
                     MetricCard(
                         title: "Bateria",
                         value: statusData["BCHARGE"] ?? "--",
-                        icon: "battery.75"
+                        icon: "battery.75",
+                        colorScheme: colorScheme
                     )
                     MetricCard(
                         title: "Carga",
                         value: statusData["LOADPCT"] ?? "--",
-                        icon: "gauge"
+                        icon: "gauge",
+                        colorScheme: colorScheme
                     )
                 }
                 
@@ -533,12 +558,14 @@ struct StatusView: View {
                     MetricCard(
                         title: "Entrada",
                         value: statusData["LINEV"] ?? "--",
-                        icon: "arrow.down.circle"
+                        icon: "arrow.down.circle",
+                        colorScheme: colorScheme
                     )
                     MetricCard(
                         title: "Saída",
                         value: statusData["OUTPUTV"] ?? "--",
-                        icon: "arrow.up.circle"
+                        icon: "arrow.up.circle",
+                        colorScheme: colorScheme
                     )
                 }
                 
@@ -546,12 +573,14 @@ struct StatusView: View {
                     MetricCard(
                         title: "Frequência",
                         value: statusData["LINEFREQ"] ?? "--",
-                        icon: "waveform"
+                        icon: "waveform",
+                        colorScheme: colorScheme
                     )
                     MetricCard(
                         title: "Tempo Rest.",
                         value: statusData["TIMELEFT"] ?? "--",
-                        icon: "clock"
+                        icon: "clock",
+                        colorScheme: colorScheme
                     )
                 }
                 
@@ -615,12 +644,17 @@ struct StatusView: View {
         timer = t
         RunLoop.main.add(t, forMode: .common)
     }
+    
+    private var cardBackground: Color {
+        colorScheme == .dark ? Color(white: 0.15) : Color(nsColor: .controlBackgroundColor)
+    }
 }
 
 struct MetricCard: View {
     let title: String
     let value: String
     let icon: String
+    let colorScheme: ColorScheme
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -637,8 +671,12 @@ struct MetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(cardBackground)
         .cornerRadius(6)
+    }
+    
+    private var cardBackground: Color {
+        colorScheme == .dark ? Color(white: 0.15) : Color(nsColor: .controlBackgroundColor)
     }
 }
 
@@ -652,6 +690,7 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         window.title = "Eventos"
         super.init(window: window)
         window.delegate = self
+        window.appearance = NSAppearance(named: .aqua) // Follow system theme
 
         let scroll = NSScrollView(frame: window.contentView?.bounds ?? rect)
         scroll.autoresizingMask = [.width, .height]
@@ -659,12 +698,14 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         scroll.hasHorizontalScroller = true
 
         textView.isEditable = false
+        textView.drawsBackground = true
         if #available(macOS 13.0, *) {
             textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         } else {
             textView.font = .systemFont(ofSize: 12)
         }
         textView.textContainerInset = NSSize(width: 6, height: 6)
+        updateColors()
         scroll.documentView = textView
         window.contentView?.addSubview(scroll)
     }
@@ -672,8 +713,19 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(with lines: [String]) {
-        textView.string = lines.joined(separator: "\n")
+        updateColors()
+        if lines.isEmpty {
+            textView.string = "(Nenhum evento ainda. Aguardando mudanças de STATUS...)"
+        } else {
+            textView.string = lines.joined(separator: "\n")
+        }
         textView.scrollToEndOfDocument(nil)
+    }
+    
+    private func updateColors() {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        textView.backgroundColor = isDark ? NSColor(white: 0.1, alpha: 1.0) : .textBackgroundColor
+        textView.textColor = isDark ? .white : .textColor
     }
 }
 
