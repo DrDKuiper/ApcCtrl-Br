@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.title = "Status"
             window.setContentSize(NSSize(width: 480, height: 520))
             window.styleMask = [.titled, .closable, .resizable]
-            window.appearance = NSAppearance(named: .aqua) // Force system theme following
+            // Follow system appearance (do not force .aqua)
             statusWindow = window
         }
         statusWindow?.makeKeyAndOrderFront(nil)
@@ -732,8 +732,8 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.title = "Eventos"
         super.init(window: window)
-        window.delegate = self
-        window.appearance = NSAppearance(named: .aqua) // Follow system theme
+    window.delegate = self
+    // Do not override appearance; let system decide (enables dark mode automatically)
 
         let scroll = NSScrollView(frame: window.contentView?.bounds ?? rect)
         scroll.autoresizingMask = [.width, .height]
@@ -766,9 +766,9 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
     }
     
     private func updateColors() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        textView.backgroundColor = isDark ? NSColor(white: 0.1, alpha: 1.0) : .textBackgroundColor
-        textView.textColor = isDark ? .white : .textColor
+    let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    textView.backgroundColor = isDark ? NSColor.windowBackgroundColor.blended(withFraction: 0.15, of: .black)! : NSColor.textBackgroundColor
+    textView.textColor = isDark ? .white : .textColor
     }
 }
 
