@@ -189,11 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startTimer() {
         timer?.invalidate()
         let interval = max(2.0, TimeInterval(Settings.shared.refreshSeconds))
-        // Use a manual timer added to the run loop in .common mode so it keeps firing while menus/windows are interacted with.
+        // Create timer and add to main run loop in common mode (keeps firing during menu/window interactions)
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            // Ensure UI updates on main thread
-            DispatchQueue.main.async { self.poll() }
+            self?.poll()
         }
         timer = t
         RunLoop.main.add(t, forMode: .common)
@@ -213,43 +211,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func poll() {
-        let (state, dict) = client.fetchStatus()
-        if let button = statusItem.button {
-            switch state {
-            case .commlost: button.image = makeIcon(system: "bolt.slash")
-            case .onbatt:   button.image = makeIcon(system: "bolt.fill")
-            case .charging: button.image = makeIcon(system: "battery.50")
-            case .online:   button.image = makeIcon(system: "checkmark.circle")
+        // Run fetch in background to avoid blocking timer
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let (state, dict) = self.client.fetchStatus()
+            
+            // Update UI on main thread
+            DispatchQueue.main.async {
+                if let button = self.statusItem.button {
+                    switch state {
+                    case .commlost: button.image = self.makeIcon(system: "bolt.slash")
+                    case .onbatt:   button.image = self.makeIcon(system: "bolt.fill")
+                    case .charging: button.image = self.makeIcon(system: "battery.50")
+                    case .online:   button.image = self.makeIcon(system: "checkmark.circle")
+                    }
+                    let statusText = dict["STATUS"] ?? "Desconhecido"
+                    button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(statusText)"
+                }
+
+                // Buscar eventos NIS
+                let nisEvents = self.client.fetchEvents()
+
+                // Fallback: se eventos NIS estiverem vazios, sintetizar evento por mudança de STATUS
+                let currentStatus = dict["STATUS"] ?? ""
+                var appendedSynthetic = false
+                if nisEvents.isEmpty {
+                    if !currentStatus.isEmpty && currentStatus != self.lastStatusText {
+                        let line = "\(self.timestamp()) Status: \(currentStatus)"
+                        self.eventsCache.append(line)
+                        appendedSynthetic = true
+                        self.lastStatusText = currentStatus
+                    }
+                } else {
+                    self.eventsCache = nisEvents
+                    self.lastStatusText = currentStatus
+                }
+
+                // Notificar última linha quando houver novidade
+                if let last = self.eventsCache.last, last != self.lastEventLine || appendedSynthetic {
+                    self.lastEventLine = last
+                    self.postNotification(title: "APC UPS", body: last)
+                    self.sendTelegram(body: last)
+                }
+                self.eventsWindow?.update(with: self.eventsCache)
             }
-            let statusText = dict["STATUS"] ?? "Desconhecido"
-            button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(statusText)"
         }
-
-        // Buscar eventos NIS
-        let nisEvents = client.fetchEvents()
-
-        // Fallback: se eventos NIS estiverem vazios, sintetizar evento por mudança de STATUS
-        let currentStatus = dict["STATUS"] ?? ""
-        var appendedSynthetic = false
-        if nisEvents.isEmpty {
-            if !currentStatus.isEmpty && currentStatus != lastStatusText {
-                let line = "\(timestamp()) Status: \(currentStatus)"
-                eventsCache.append(line)
-                appendedSynthetic = true
-                lastStatusText = currentStatus
-            }
-        } else {
-            eventsCache = nisEvents
-            lastStatusText = currentStatus
-        }
-
-        // Notificar última linha quando houver novidade
-        if let last = eventsCache.last, last != lastEventLine || appendedSynthetic {
-            lastEventLine = last
-            postNotification(title: "APC UPS", body: last)
-            sendTelegram(body: last)
-        }
-        eventsWindow?.update(with: eventsCache)
     }
 
     @objc func showStatus() {
@@ -543,7 +549,16 @@ struct StatusView: View {
             .padding()
         }
         .frame(minWidth: 400, minHeight: 480)
-        .onAppear { refresh() }
+        .onAppear {
+            refresh()
+            // Start auto-refresh timer when view appears
+            startAutoRefresh()
+        }
+        .onDisappear {
+            // Stop timer when view disappears
+            timer?.invalidate()
+            timer = nil
+        }
     }
     
     private var sortedKeys: [String] {
@@ -568,6 +583,16 @@ struct StatusView: View {
     
     private func refresh() {
         statusData = fetchStatus()
+    }
+    
+    private func startAutoRefresh() {
+        timer?.invalidate()
+        let interval: TimeInterval = 5.0 // Refresh every 5 seconds
+        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            refresh()
+        }
+        timer = t
+        RunLoop.main.add(t, forMode: .common)
     }
 }
 
