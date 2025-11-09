@@ -163,7 +163,7 @@ final class NisClient {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     var client: NisClient!
     var timer: Timer?
@@ -181,7 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         constructMenu()
         // Solicitar permissão para notificações (somente quando rodando dentro de um .app bundle)
         if canUseUserNotifications() {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            let center = UNUserNotificationCenter.current()
+            center.delegate = self
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
                 print("[Notifications] Permission granted: \(granted), error: \(String(describing: error))")
                 if granted {
                     print("[Notifications] Alerts enabled. You can now receive notifications.")
@@ -194,6 +196,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         poll()
         startTimer()
+    }
+
+    // Show notifications even when app is foreground
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if #available(macOS 11.0, *) {
+            completionHandler([.banner, .list, .sound])
+        } else {
+            completionHandler([.alert, .sound])
+        }
     }
     func startTimer() {
         timer?.invalidate()
@@ -213,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "Eventos", action: #selector(showEvents), keyEquivalent: "e"))
         menu.addItem(NSMenuItem(title: "Notificação de teste", action: #selector(sendTestNotification), keyEquivalent: "n"))
+        menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
         menu.addItem(NSMenuItem(title: "Autoteste (em breve)", action: #selector(runSelfTestPlaceholder), keyEquivalent: "t"))
@@ -477,6 +489,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let msg = "Notificação de teste"
         postNotification(title: "APC UPS", body: msg)
         sendTelegram(body: msg)
+    }
+
+    @objc func openNotificationSettings() {
+        // Try modern and legacy URLs
+        let candidates = [
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.notifications"
+        ]
+        for c in candidates {
+            if let url = URL(string: c), NSWorkspace.shared.open(url) { return }
+        }
+        // Fallback: open System Settings app
+        NSWorkspace.shared.launchApplication("System Settings")
     }
 
     private func timestamp() -> String {
