@@ -19,14 +19,47 @@ APP_DIR="$PROJECT_ROOT/$APP_NAME.app"
 cd "$APP_SRC"
 
 echo "Building ($CONFIG)..."
-# Build and capture binary path (swift 5.6+ supports --show-bin-path)
-BIN_DIR=$(swift build -c "$CONFIG" --show-bin-path)
-BIN_PATH="$BIN_DIR/$BINARY_NAME"
+swift build -c "$CONFIG"
 
-if [[ ! -x "$BIN_PATH" ]]; then
-  echo "Built binary not found or not executable: $BIN_PATH" >&2
+# Try multiple methods to locate the binary
+BIN_PATH=""
+
+# Method 1: Use --show-bin-path (Swift 5.6+)
+if command -v swift >/dev/null 2>&1; then
+  BIN_DIR=$(swift build -c "$CONFIG" --show-bin-path 2>/dev/null || true)
+  if [[ -n "$BIN_DIR" && -x "$BIN_DIR/$BINARY_NAME" ]]; then
+    BIN_PATH="$BIN_DIR/$BINARY_NAME"
+  fi
+fi
+
+# Method 2: Check common build output locations
+if [[ -z "$BIN_PATH" ]]; then
+  CANDIDATES=(
+    "$APP_SRC/.build/$CONFIG/$BINARY_NAME"
+    "$APP_SRC/.build/release/$BINARY_NAME"
+    "$APP_SRC/.build/debug/$BINARY_NAME"
+    "$APP_SRC/.build/arm64-apple-macosx/$CONFIG/$BINARY_NAME"
+    "$APP_SRC/.build/x86_64-apple-macosx/$CONFIG/$BINARY_NAME"
+  )
+  for candidate in "${CANDIDATES[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      BIN_PATH="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$BIN_PATH" || ! -x "$BIN_PATH" ]]; then
+  echo "Error: Could not locate built binary." >&2
+  echo "Tried locations:" >&2
+  echo "  - $APP_SRC/.build/$CONFIG/$BINARY_NAME" >&2
+  echo "  - $APP_SRC/.build/release/$BINARY_NAME" >&2
+  echo "  - $APP_SRC/.build/arm64-apple-macosx/$CONFIG/$BINARY_NAME" >&2
+  echo "  - $APP_SRC/.build/x86_64-apple-macosx/$CONFIG/$BINARY_NAME" >&2
   exit 1
 fi
+
+echo "Found binary at: $BIN_PATH"
 
 echo "Creating app bundle at $APP_DIR"
 rm -rf "$APP_DIR"
