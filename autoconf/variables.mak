@@ -30,7 +30,7 @@ INSTALL = /usr/bin/install -c
 INSTALL_PROGRAM = ${INSTALL}
 INSTALL_DATA = ${INSTALL} -m 644
 INSTALL_SCRIPT = ${INSTALL}
-MKINSTALLDIRS = /home/wagner/workspace/apcctrl/autoconf/mkinstalldirs
+MKINSTALLDIRS = sh $(topdir)/autoconf/mkinstalldirs
 CHKCONFIG = /sbin/chkconfig
 RST2HTML := 
 RST2PDF := 
@@ -42,7 +42,8 @@ sysconfdir = /etc/apcctrl
 cgibin = /etc/apcctrl
 VPATH = /usr/lib:/usr/local/lib
 srcdir = .
-abstopdir = /home/wagner/workspace/apcctrl
+# Resolve absolute project root at build time based on the relative $(topdir)
+abstopdir = $(shell cd $(topdir) && pwd)
 sbindir = /sbin
 piddir = /var/run
 mandir=${prefix}/share/man
@@ -72,6 +73,7 @@ DRVLIBS = -lpthread
 X_LIBS = 
 X_EXTRA_LIBS = 
 
+# Ensure project headers are on the include path
 CPPFLAGS =  -I/usr/local/include -I$(topdir)/include $(EXTRAINCS)
 CFLAGS = $(CPPFLAGS) -g -O2 
 CXXFLAGS = $(CPPFLAGS) -g -O2 -fno-exceptions -fno-rtti -Wall -Wno-unused-result 
