@@ -31,6 +31,12 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 echo "Project root: $PROJECT_ROOT"
 
+# Do not run as root (Homebrew forbids running as root)
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+  echo "Please run this script WITHOUT sudo. Use sudo only when starting the daemon (apcctrl)." >&2
+  exit 1
+fi
+
 # 1) Ensure Xcode CLT
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "Xcode Command Line Tools not found. Please run: xcode-select --install" >&2
@@ -56,6 +62,8 @@ if [[ ! -f ./configure ]]; then
   echo "Generating ./configure from autoconf/configure.in ..."
   make configure
 fi
+# Ensure ./configure is executable even if checked out without +x
+chmod +x ./configure || true
 
 # 4) Clean caches/old vars and reconfigure (force fallback for gethostbyname_r)
 rm -f config.cache config.log config.status include/apcconfig.h autoconf/variables.mak || true
