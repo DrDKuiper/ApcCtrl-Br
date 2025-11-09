@@ -168,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var client: NisClient!
     var timer: Timer?
     var lastEventLine: String = ""
+    var lastStatusText: String = ""
     var eventsCache: [String] = []
     var eventsWindow: EventsWindowController?
     var statusWindow: NSWindow?
@@ -188,7 +189,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startTimer() {
         timer?.invalidate()
         let interval = max(2.0, TimeInterval(Settings.shared.refreshSeconds))
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in self.poll() }
+        // Use a manual timer added to the run loop in .common mode so it keeps firing while menus/windows are interacted with.
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            // Ensure UI updates on main thread
+            DispatchQueue.main.async { self.poll() }
+        }
+        timer = t
+        RunLoop.main.add(t, forMode: .common)
     }
 
     func constructMenu() {
@@ -217,12 +225,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(statusText)"
         }
 
-        // Buscar eventos para notificar novidades
-        let events = client.fetchEvents()
-        eventsCache = events
-        if let last = events.last, last != lastEventLine {
+        // Buscar eventos NIS
+        let nisEvents = client.fetchEvents()
+
+        // Fallback: se eventos NIS estiverem vazios, sintetizar evento por mudança de STATUS
+        let currentStatus = dict["STATUS"] ?? ""
+        var appendedSynthetic = false
+        if nisEvents.isEmpty {
+            if !currentStatus.isEmpty && currentStatus != lastStatusText {
+                let line = "\(timestamp()) Status: \(currentStatus)"
+                eventsCache.append(line)
+                appendedSynthetic = true
+                lastStatusText = currentStatus
+            }
+        } else {
+            eventsCache = nisEvents
+            lastStatusText = currentStatus
+        }
+
+        // Notificar última linha quando houver novidade
+        if let last = eventsCache.last, last != lastEventLine || appendedSynthetic {
             lastEventLine = last
             postNotification(title: "APC UPS", body: last)
+            sendTelegram(body: last)
         }
         eventsWindow?.update(with: eventsCache)
     }
@@ -254,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showConfig() {
         let alert = NSAlert()
         alert.messageText = "Configuração NIS"
-        alert.informativeText = "Editar parâmetros de conexão e intervalo."
+        alert.informativeText = "Editar parâmetros de conexão, intervalo e alertas."
         alert.addButton(withTitle: "Salvar")
         alert.addButton(withTitle: "Cancelar")
 
@@ -264,6 +289,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         portField.placeholderString = "Porta"
         let refreshField = NSTextField(string: String(Settings.shared.refreshSeconds))
         refreshField.placeholderString = "Intervalo (s)"
+
+        let tgEnabled = NSButton(checkboxWithTitle: "Enviar alertas via Telegram", target: nil, action: nil)
+        tgEnabled.state = Settings.shared.telegramEnabled ? .on : .off
+        let tgTokenField = NSTextField(string: Settings.shared.telegramBotToken)
+        tgTokenField.placeholderString = "Bot Token"
+        let tgChatField = NSTextField(string: Settings.shared.telegramChatId)
+        tgChatField.placeholderString = "Chat ID"
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -280,11 +312,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             h.addArrangedSubview(field)
             return h
         }
-        stack.addArrangedSubview(labeled("Host", hostField))
-        stack.addArrangedSubview(labeled("Porta", portField))
-        stack.addArrangedSubview(labeled("Intervalo (s)", refreshField))
+    stack.addArrangedSubview(labeled("Host", hostField))
+    stack.addArrangedSubview(labeled("Porta", portField))
+    stack.addArrangedSubview(labeled("Intervalo (s)", refreshField))
+    let sep = NSBox()
+    sep.boxType = .separator
+    stack.addArrangedSubview(sep)
+    stack.addArrangedSubview(tgEnabled)
+    stack.addArrangedSubview(labeled("Bot Token", tgTokenField))
+    stack.addArrangedSubview(labeled("Chat ID", tgChatField))
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.setFrameSize(NSSize(width: 260, height: 90))
+    stack.setFrameSize(NSSize(width: 340, height: 200))
 
         alert.accessoryView = stack
         let response = alert.runModal()
@@ -299,11 +337,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Settings.shared.host = validHost
             Settings.shared.port = validPort
             Settings.shared.refreshSeconds = validRefresh
+            Settings.shared.telegramEnabled = (tgEnabled.state == .on)
+            Settings.shared.telegramBotToken = tgTokenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            Settings.shared.telegramChatId = tgChatField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             Settings.shared.save()
             // Recriar cliente e timer
             client = NisClient(host: Settings.shared.host, port: Settings.shared.port)
             startTimer()
-            simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s")
+            simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s\nTelegram: \(Settings.shared.telegramEnabled ? "On" : "Off")")
         }
     }
     @objc func runSelfTestPlaceholder() { simpleAlert(title: "Autoteste", message: "Função será integrada (NIS ou apctest)") }
@@ -341,6 +382,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
 
+    private func sendTelegram(body: String) {
+        let s = Settings.shared
+        guard s.telegramEnabled, !s.telegramBotToken.isEmpty, !s.telegramChatId.isEmpty else { return }
+        let token = s.telegramBotToken
+        guard let url = URL(string: "https://api.telegram.org/bot\(token)/sendMessage") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = [
+            "chat_id": s.telegramChatId,
+            "text": body
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
+        URLSession.shared.dataTask(with: req) { _,_,_ in }.resume()
+    }
+
     // Somente disponível quando rodando como .app (Bundle válido) – evita crash do UNUserNotificationCenter
     private func canUseUserNotifications() -> Bool {
         // bundleIdentifier e sufixo .app são bons indicativos de app empacotado
@@ -350,7 +407,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func sendTestNotification() {
-        postNotification(title: "APC UPS", body: "Notificação de teste")
+        let msg = "Notificação de teste"
+        postNotification(title: "APC UPS", body: msg)
+        sendTelegram(body: msg)
+    }
+
+    private func timestamp() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.string(from: Date())
     }
 }
 
@@ -361,21 +426,33 @@ final class Settings {
     private let kHost = "nisHost"
     private let kPort = "nisPort"
     private let kRefresh = "nisRefresh"
+    private let kTgEnabled = "tgEnabled"
+    private let kTgToken = "tgToken"
+    private let kTgChat = "tgChat"
     var host: String = "127.0.0.1"
     var port: Int = 3551
     var refreshSeconds: Int = 10
+    var telegramEnabled: Bool = false
+    var telegramBotToken: String = ""
+    var telegramChatId: String = ""
 
     func load() {
         let d = UserDefaults.standard
         if let h = d.string(forKey: kHost) { host = h }
         let p = d.integer(forKey: kPort); if p != 0 { port = p }
         let r = d.integer(forKey: kRefresh); if r != 0 { refreshSeconds = r }
+        telegramEnabled = d.object(forKey: kTgEnabled) as? Bool ?? false
+        if let t = d.string(forKey: kTgToken) { telegramBotToken = t }
+        if let c = d.string(forKey: kTgChat) { telegramChatId = c }
     }
     func save() {
         let d = UserDefaults.standard
         d.set(host, forKey: kHost)
         d.set(port, forKey: kPort)
         d.set(refreshSeconds, forKey: kRefresh)
+        d.set(telegramEnabled, forKey: kTgEnabled)
+        d.set(telegramBotToken, forKey: kTgToken)
+        d.set(telegramChatId, forKey: kTgChat)
     }
 }
 
