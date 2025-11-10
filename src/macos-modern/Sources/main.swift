@@ -175,12 +175,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Track alert states to avoid spamming repeated voltage/frequency notifications
     var lastVoltageAlerted: Bool = false
     var lastFrequencyAlerted: Bool = false
+    // Track on-battery timing
+    var onBatteryStart: Date? = nil
+    var lastOnBatteryDuration: TimeInterval = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
         // Carregar configurações persistidas
         Settings.shared.load()
         client = NisClient(host: Settings.shared.host, port: Settings.shared.port)
+        // Restaurar temporização de bateria persistida
+        if Settings.shared.onBattStartEpoch > 0 {
+            onBatteryStart = Date(timeIntervalSince1970: Settings.shared.onBattStartEpoch)
+        }
+        lastOnBatteryDuration = Settings.shared.lastOnBattSeconds
         constructMenu()
         // Solicitar permissão para notificações (somente quando rodando dentro de um .app bundle)
         if canUseUserNotifications() {
@@ -255,7 +263,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     case .online:   button.image = self.makeIcon(system: "checkmark.circle")
                     }
                     let statusText = dict["STATUS"] ?? "Desconhecido"
-                    button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(statusText)"
+                    // Atualiza cronômetro de bateria e tooltip com emoji
+                    let isOnBatt = statusText.contains("ONBATT")
+                    if isOnBatt {
+                        if self.onBatteryStart == nil {
+                            self.onBatteryStart = Date()
+                            Settings.shared.onBattStartEpoch = self.onBatteryStart!.timeIntervalSince1970
+                            Settings.shared.save()
+                        }
+                    } else if let start = self.onBatteryStart {
+                        let dur = Date().timeIntervalSince(start)
+                        self.lastOnBatteryDuration = dur
+                        Settings.shared.lastOnBattSeconds = dur
+                        Settings.shared.onBattStartEpoch = 0
+                        Settings.shared.save()
+                        self.onBatteryStart = nil
+                    }
+                    let emoji = self.emojiForStatus(statusText)
+                    var batteryLine = ""
+                    if let start = self.onBatteryStart {
+                        batteryLine = "\n🔋 Em bateria há: \(self.formatDuration(Date().timeIntervalSince(start)))"
+                    } else if self.lastOnBatteryDuration > 0 {
+                        batteryLine = "\n🔋 Último ciclo em bateria: \(self.formatDuration(self.lastOnBatteryDuration))"
+                    }
+                    button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(emoji) \(statusText)\(batteryLine)"
                 }
 
                 // Buscar eventos NIS
@@ -269,6 +300,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         self.lastStatusText = currentStatus
                     } else if !currentStatus.isEmpty && currentStatus != self.lastStatusText {
                         self.eventsCache.append("\(self.timestamp()) Mudança - Status: \(currentStatus)")
+                        // Eventos de entrada/saída de bateria
+                        let wasOnBatt = self.lastStatusText.contains("ONBATT")
+                        let nowOnBatt = currentStatus.contains("ONBATT")
+                        if nowOnBatt && !wasOnBatt {
+                            self.eventsCache.append("\(self.timestamp()) Entrou em bateria")
+                        } else if !nowOnBatt && wasOnBatt {
+                            let durText = self.lastOnBatteryDuration > 0 ? self.formatDuration(self.lastOnBatteryDuration) : "--:--"
+                            self.eventsCache.append("\(self.timestamp()) Saiu da bateria (duração \(durText))")
+                        }
                         self.lastStatusText = currentStatus
                     }
                 } else {
@@ -328,7 +368,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if statusWindow == nil {
             let contentView = StatusView(fetchStatus: { [weak self] in
                 guard let self = self else { return [:] }
-                let (_, dict) = self.client.fetchStatus()
+                let (_, base) = self.client.fetchStatus()
+                var dict = base
+                if let start = self.onBatteryStart {
+                    dict["ONBATT_ELAPSED"] = self.formatDuration(Date().timeIntervalSince(start))
+                } else if self.lastOnBatteryDuration > 0 {
+                    dict["ONBATT_LAST"] = self.formatDuration(self.lastOnBatteryDuration)
+                }
                 return dict
             })
             let hostingController = NSHostingController(rootView: contentView)
@@ -490,6 +536,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return NSImage(size: NSSize(width: 16, height: 16))
     }
 
+    private func emojiForStatus(_ status: String) -> String {
+        let s = status.uppercased()
+        if s.contains("COMMLOST") { return "❌" }
+        if s.contains("ONBATT") { return "🔋" }
+        if s.contains("ONLINE") { return "🔌" }
+        if s.contains("CHARG") { return "🔄" }
+        return "ℹ️"
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        var total = max(0, Int(seconds.rounded()))
+        let h = total / 3600
+        total %= 3600
+        let m = total / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%02d:%02d", m, s)
+        }
+    }
+
     func postNotification(title: String, body: String) {
         guard canUseUserNotifications() else {
             print("[Notifications] Skipped (not in .app bundle): \(title) - \(body)")
@@ -600,6 +668,8 @@ final class Settings {
     private let kFreqLow = "freqLow"
     private let kFreqHigh = "freqHigh"
     private let kVoltageAlerts = "voltageAlerts"
+    private let kOnBattStart = "onBattStartEpoch"
+    private let kLastOnBatt = "lastOnBattSeconds"
     var host: String = "127.0.0.1"
     var port: Int = 3551
     var refreshSeconds: Int = 10
@@ -612,6 +682,9 @@ final class Settings {
     var frequencyLow: Double = 55.0
     var frequencyHigh: Double = 65.0
     var voltageAlertsEnabled: Bool = true
+    // Persisted on-battery timing
+    var onBattStartEpoch: TimeInterval = 0
+    var lastOnBattSeconds: TimeInterval = 0
 
     func load() {
         let d = UserDefaults.standard
@@ -626,6 +699,8 @@ final class Settings {
         let fl = d.double(forKey: kFreqLow); if fl != 0 { frequencyLow = fl }
         let fh = d.double(forKey: kFreqHigh); if fh != 0 { frequencyHigh = fh }
         voltageAlertsEnabled = d.object(forKey: kVoltageAlerts) as? Bool ?? voltageAlertsEnabled
+        let start = d.double(forKey: kOnBattStart); if start != 0 { onBattStartEpoch = start }
+        let last = d.double(forKey: kLastOnBatt); if last != 0 { lastOnBattSeconds = last }
     }
     func save() {
         let d = UserDefaults.standard
@@ -640,6 +715,8 @@ final class Settings {
         d.set(frequencyLow, forKey: kFreqLow)
         d.set(frequencyHigh, forKey: kFreqHigh)
         d.set(voltageAlertsEnabled, forKey: kVoltageAlerts)
+        d.set(onBattStartEpoch, forKey: kOnBattStart)
+        d.set(lastOnBattSeconds, forKey: kLastOnBatt)
     }
 }
 
@@ -664,9 +741,19 @@ struct StatusView: View {
                         Text(statusData["UPSNAME"] ?? "UPS")
                             .font(.title2)
                             .fontWeight(.semibold)
-                        Text(statusData["STATUS"] ?? "Desconhecido")
+                        let statusRaw = statusData["STATUS"] ?? "Desconhecido"
+                        Text("\(statusEmoji) \(statusRaw)")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                        if let elapsed = statusData["ONBATT_ELAPSED"] {
+                            Text("🔋 Em bateria: \(elapsed)")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        } else if let last = statusData["ONBATT_LAST"] {
+                            Text("🔋 Último ciclo: \(last)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     Spacer()
                     Button("Atualizar") { refresh() }
@@ -769,6 +856,15 @@ struct StatusView: View {
         return .blue
     }
     
+    private var statusEmoji: String {
+        let s = (statusData["STATUS"] ?? "").uppercased()
+        if s.contains("COMMLOST") { return "❌" }
+        if s.contains("ONBATT") { return "🔋" }
+        if s.contains("ONLINE") { return "🔌" }
+        if s.contains("CHARG") { return "🔄" }
+        return "ℹ️"
+    }
+    
     private func refresh() {
         statusData = fetchStatus()
     }
@@ -821,6 +917,7 @@ struct MetricCard: View {
 // MARK: - Events Window
 final class EventsWindowController: NSWindowController, NSWindowDelegate {
     private let textView = NSTextView(frame: .zero)
+    private var appearanceObserver: NSObjectProtocol?
 
     init() {
         let rect = NSRect(x: 0, y: 0, width: 560, height: 420)
@@ -846,9 +943,24 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         updateColors()
         scroll.documentView = textView
         window.contentView?.addSubview(scroll)
+
+        // Update colors immediately on system appearance change (light/dark)
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeEffectiveAppearanceNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateColors()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        if let obs = appearanceObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
 
     func update(with lines: [String]) {
         updateColors()
