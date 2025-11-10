@@ -55,22 +55,6 @@ final class NisClient {
             if dict.isEmpty || dict["STATUS"] == nil {
                 if let text = self.runApcaccess() {
                     dict = self.parseKeyValueText(text)
-
-            // Voltage/Frequency monitoring controls
-            let voltageAlertsBox = NSButton(checkboxWithTitle: "Monitorar tensão/frequência", target: nil, action: nil)
-            voltageAlertsBox.state = Settings.shared.voltageAlertsEnabled ? .on : .off
-            let highVoltField = NSTextField(string: String(Settings.shared.voltageHigh))
-            highVoltField.placeholderString = "Tensão alta (V)"
-            highVoltField.isEditable = true; highVoltField.isSelectable = true
-            let lowVoltField = NSTextField(string: String(Settings.shared.voltageLow))
-            lowVoltField.placeholderString = "Tensão baixa (V)"
-            lowVoltField.isEditable = true; lowVoltField.isSelectable = true
-            let lowFreqField = NSTextField(string: String(Settings.shared.frequencyLow))
-            lowFreqField.placeholderString = "Freq. baixa (Hz)"
-            lowFreqField.isEditable = true; lowFreqField.isSelectable = true
-            let highFreqField = NSTextField(string: String(Settings.shared.frequencyHigh))
-            highFreqField.placeholderString = "Freq. alta (Hz)"
-            highFreqField.isEditable = true; highFreqField.isSelectable = true
                 }
             }
 
@@ -99,14 +83,8 @@ final class NisClient {
             if let data = cmd.data(using: .ascii) {
                 data.withUnsafeBytes { ptr in
                     guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-        let sep2 = NSBox(); sep2.boxType = .separator; stack.addArrangedSubview(sep2)
-        stack.addArrangedSubview(voltageAlertsBox)
-        stack.addArrangedSubview(labeled("Tensão Alta", highVoltField))
-        stack.addArrangedSubview(labeled("Tensão Baixa", lowVoltField))
-        stack.addArrangedSubview(labeled("Freq. Baixa", lowFreqField))
-        stack.addArrangedSubview(labeled("Freq. Alta", highFreqField))
                     output.write(base, maxLength: data.count)
-        stack.setFrameSize(NSSize(width: 440, height: 380))
+                }
             }
             output.close()
 
@@ -128,19 +106,9 @@ final class NisClient {
         }
         _ = semaphore.wait(timeout: .now() + timeout)
         return events
-                // Parse and store thresholds
-                let vh = Double(highVoltField.stringValue) ?? Settings.shared.voltageHigh
-                let vl = Double(lowVoltField.stringValue) ?? Settings.shared.voltageLow
-                let fl = Double(lowFreqField.stringValue) ?? Settings.shared.frequencyLow
-                let fh = Double(highFreqField.stringValue) ?? Settings.shared.frequencyHigh
-                Settings.shared.voltageHigh = max(200, min(300, vh))
-                Settings.shared.voltageLow = max(100, min(Settings.shared.voltageHigh - 10, vl))
-                Settings.shared.frequencyLow = max(40, min(Settings.shared.frequencyHigh - 1, fl))
-                Settings.shared.frequencyHigh = max(Settings.shared.frequencyLow + 1, min(70, fh))
-                Settings.shared.voltageAlertsEnabled = (voltageAlertsBox.state == .on)
-                Settings.shared.save()
+    }
 
-                simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s\nTelegram: \(Settings.shared.telegramEnabled ? \"On\" : \"Off\")\nMonitoração tensão/freq: \(Settings.shared.voltageAlertsEnabled ? \"On\" : \"Off\")")
+    private func openStream() -> (InputStream, OutputStream)? {
         var inS: InputStream?; var outS: OutputStream?
         Stream.getStreamsToHost(withName: host, port: port, inputStream: &inS, outputStream: &outS)
         guard let i = inS, let o = outS else { return nil }
@@ -416,6 +384,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tgChatField.isEditable = true
         tgChatField.isSelectable = true
 
+        // Monitoramento tensão/frequência
+        let voltageAlertsBox = NSButton(checkboxWithTitle: "Monitorar tensão/frequência", target: nil, action: nil)
+        voltageAlertsBox.state = Settings.shared.voltageAlertsEnabled ? .on : .off
+        let highVoltField = NSTextField(string: String(Settings.shared.voltageHigh))
+        highVoltField.placeholderString = "Tensão alta (V)"
+        highVoltField.isEditable = true; highVoltField.isSelectable = true
+        let lowVoltField = NSTextField(string: String(Settings.shared.voltageLow))
+        lowVoltField.placeholderString = "Tensão baixa (V)"
+        lowVoltField.isEditable = true; lowVoltField.isSelectable = true
+        let lowFreqField = NSTextField(string: String(Settings.shared.frequencyLow))
+        lowFreqField.placeholderString = "Freq. baixa (Hz)"
+        lowFreqField.isEditable = true; lowFreqField.isSelectable = true
+        let highFreqField = NSTextField(string: String(Settings.shared.frequencyHigh))
+        highFreqField.placeholderString = "Freq. alta (Hz)"
+        highFreqField.isEditable = true; highFreqField.isSelectable = true
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 4
@@ -443,8 +427,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     stack.addArrangedSubview(tgEnabled)
     stack.addArrangedSubview(labeled("Bot Token", tgTokenField))
     stack.addArrangedSubview(labeled("Chat ID", tgChatField))
+    stack.addArrangedSubview(voltageAlertsBox)
+    stack.addArrangedSubview(labeled("Tensão Alta", highVoltField))
+    stack.addArrangedSubview(labeled("Tensão Baixa", lowVoltField))
+    stack.addArrangedSubview(labeled("Freq. Baixa", lowFreqField))
+    stack.addArrangedSubview(labeled("Freq. Alta", highFreqField))
         stack.translatesAutoresizingMaskIntoConstraints = false
-    stack.setFrameSize(NSSize(width: 420, height: 240))
+    stack.setFrameSize(NSSize(width: 440, height: 360))
 
         alert.accessoryView = stack
         let response = alert.runModal()
@@ -462,11 +451,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Settings.shared.telegramEnabled = (tgEnabled.state == .on)
             Settings.shared.telegramBotToken = tgTokenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             Settings.shared.telegramChatId = tgChatField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Parse thresholds
+            let vh = Double(highVoltField.stringValue) ?? Settings.shared.voltageHigh
+            let vl = Double(lowVoltField.stringValue) ?? Settings.shared.voltageLow
+            let fl = Double(lowFreqField.stringValue) ?? Settings.shared.frequencyLow
+            let fh = Double(highFreqField.stringValue) ?? Settings.shared.frequencyHigh
+            Settings.shared.voltageHigh = max(200, min(300, vh))
+            Settings.shared.voltageLow = max(100, min(Settings.shared.voltageHigh - 10, vl))
+            Settings.shared.frequencyLow = max(40, min(Settings.shared.frequencyHigh - 1, fl))
+            Settings.shared.frequencyHigh = max(Settings.shared.frequencyLow + 1, min(70, fh))
+            Settings.shared.voltageAlertsEnabled = (voltageAlertsBox.state == .on)
             Settings.shared.save()
             // Recriar cliente e timer
             client = NisClient(host: Settings.shared.host, port: Settings.shared.port)
             startTimer()
-            simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s\nTelegram: \(Settings.shared.telegramEnabled ? "On" : "Off")")
+            simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s\nTelegram: \(Settings.shared.telegramEnabled ? "On" : "Off")\nMonitoração tensão/freq: \(Settings.shared.voltageAlertsEnabled ? "On" : "Off")")
         }
     }
     @objc func runSelfTestPlaceholder() { simpleAlert(title: "Autoteste", message: "Função será integrada (NIS ou apctest)") }
