@@ -642,8 +642,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for c in candidates {
             if let url = URL(string: c), NSWorkspace.shared.open(url) { return }
         }
-        // Fallback: open System Settings app
-        NSWorkspace.shared.launchApplication("System Settings")
+        // Fallback: open System Settings / System Preferences depending on OS version
+        if #available(macOS 13.0, *) { // Ventura+: System Settings
+            if let url = URL(string: "x-apple.systempreferences:") { _ = NSWorkspace.shared.open(url) }
+        } else if #available(macOS 10.15, *) { // Use modern API to open System Preferences
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.systempreferences") {
+                let config = NSWorkspace.OpenConfiguration()
+                NSWorkspace.shared.openApplication(at: appURL, configuration: config, completionHandler: nil)
+            } else {
+                NSWorkspace.shared.launchApplication("System Preferences") // last resort
+            }
+        } else {
+            NSWorkspace.shared.launchApplication("System Preferences")
+        }
     }
 
     private func timestamp() -> String {
@@ -918,6 +929,7 @@ struct MetricCard: View {
 final class EventsWindowController: NSWindowController, NSWindowDelegate {
     private let textView = NSTextView(frame: .zero)
     private var appearanceObserver: NSObjectProtocol?
+    private var kvoAppearanceObservation: NSKeyValueObservation?
 
     init() {
         let rect = NSRect(x: 0, y: 0, width: 560, height: 420)
@@ -944,13 +956,11 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         scroll.documentView = textView
         window.contentView?.addSubview(scroll)
 
-        // Update colors immediately on system appearance change (light/dark)
-        appearanceObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeEffectiveAppearanceNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.updateColors()
+        // Update colors on appearance changes using KVO (10.14+). Older systems don't support dark mode.
+        if #available(macOS 10.14, *) {
+            kvoAppearanceObservation = window.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+                self?.updateColors()
+            }
         }
     }
 
@@ -960,6 +970,7 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
         if let obs = appearanceObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        kvoAppearanceObservation = nil
     }
 
     func update(with lines: [String]) {
