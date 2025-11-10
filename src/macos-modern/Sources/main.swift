@@ -178,6 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Track on-battery timing
     var onBatteryStart: Date? = nil
     var lastOnBatteryDuration: TimeInterval = 0
+    // Cache last known UPS name to avoid blocking lookups in notifications
+    var lastUpsName: String = "UPS"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
@@ -263,6 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     case .online:   button.image = self.makeIcon(system: "checkmark.circle")
                     }
                     let statusText = dict["STATUS"] ?? "Desconhecido"
+                    self.lastUpsName = (dict["UPSNAME"]?.isEmpty == false) ? dict["UPSNAME"]! : self.lastUpsName
                     // Atualiza cronômetro de bateria e tooltip com emoji
                     let isOnBatt = statusText.contains("ONBATT")
                     if isOnBatt {
@@ -351,6 +354,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 
                 if self.eventsCache.count > previousCount {
+                    // Enrich only the newly added events
+                    for i in previousCount..<self.eventsCache.count {
+                        self.eventsCache[i] = self.enrichEvent(self.eventsCache[i], dict: dict)
+                    }
                     for line in self.eventsCache.suffix(self.eventsCache.count - previousCount) {
                         if line != self.lastEventLine {
                             self.postNotification(title: "APC UPS", body: line)
@@ -558,13 +565,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    // Map event line to an emoji (used to enrich events list & notifications)
+    private func eventEmoji(for line: String) -> String {
+        let l = line.uppercased()
+        if l.contains("COMMLOST") { return "❌" }
+        if l.contains("ONBATT") || l.contains("ENTROU EM BATERIA") { return "🔋" }
+        if l.contains("SAIU DA BATERIA") || l.contains("ONLINE") { return "🔌" }
+        if l.contains("SOBRETENSÃO") || l.contains("SUBTENSÃO") { return "⚡️" }
+        if l.contains("FREQ ") || l.contains("FREQ ALTA") || l.contains("FREQ BAIXA") { return "📶" }
+        if l.contains("NORMALIZADA") { return "✅" }
+        if l.contains("CHARG") { return "🔄" }
+        return "ℹ️"
+    }
+
+    // Enrich raw event line with contextual metrics and emoji; may become multi-line
+    private func enrichEvent(_ line: String, dict: [String:String]) -> String {
+        // Prevent double enrichment if already multi-line
+        if line.contains("\n") { return line }
+        let emoji = eventEmoji(for: line)
+        // Extract metrics
+        let charge = dict["BCHARGE"] ?? "--"
+        let load = dict["LOADPCT"] ?? "--"
+        let linev = dict["LINEV"]?.split(separator: " ").first.map(String.init) ?? dict["LINEV"] ?? "--"
+        let linefreq = dict["LINEFREQ"]?.split(separator: " ").first.map(String.init) ?? dict["LINEFREQ"] ?? "--"
+        let timeLeft = dict["TIMELEFT"] ?? "--"
+        var contextParts: [String] = []
+        let u = line.uppercased()
+        if u.contains("ALERTA") {
+            contextParts.append("Bateria: \(charge)")
+            contextParts.append("Carga: \(load)")
+            contextParts.append("Volt: \(linev)V")
+            contextParts.append("Freq: \(linefreq)Hz")
+        } else if u.contains("ENTROU EM BATERIA") {
+            contextParts.append("Autonomia: \(timeLeft)")
+            contextParts.append("Bateria: \(charge)")
+            contextParts.append("Carga: \(load)")
+        } else if u.contains("SAIU DA BATERIA") {
+            contextParts.append("Bateria: \(charge)")
+            contextParts.append("Volt: \(linev)V")
+            contextParts.append("Freq: \(linefreq)Hz")
+        } else if u.contains("MUDANÇA - STATUS") || u.contains("INICIALIZADO - STATUS") {
+            contextParts.append("Bateria: \(charge)")
+            contextParts.append("Carga: \(load)")
+            contextParts.append("Volt/Freq: \(linev)V / \(linefreq)Hz")
+            contextParts.append("Autonomia: \(timeLeft)")
+        } else if u.contains("NORMALIZADA") {
+            contextParts.append("Volt: \(linev)V")
+            contextParts.append("Freq: \(linefreq)Hz")
+            contextParts.append("Bateria: \(charge)")
+        } else {
+            // Generic fallback
+            contextParts.append("Bateria: \(charge)")
+            contextParts.append("Carga: \(load)")
+        }
+        let contextLine = contextParts.joined(separator: " | ")
+        // Add emoji prefix if missing
+        let prefixed = line.hasPrefix(emoji) ? line : "\(emoji) \(line)"
+        return "\(prefixed)\n\(contextLine)"
+    }
+
     func postNotification(title: String, body: String) {
         guard canUseUserNotifications() else {
             print("[Notifications] Skipped (not in .app bundle): \(title) - \(body)")
             return
         }
         let content = UNMutableNotificationContent()
-        content.title = title
+        // Use cached UPS name from last poll for performance
+        content.title = lastUpsName
         content.body = body
         content.sound = .default
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
@@ -591,12 +658,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Prefix message with status emoji when appropriate
+    let knownEmojiPrefixes = ["❌","🔋","🔌","🔄","ℹ️","⚠️","✅","⚡️","⚡","📶"]
+        let trimmed = body.trimmingCharacters(in: .whitespaces)
+        let hasEmojiPrefix = knownEmojiPrefixes.contains { trimmed.hasPrefix($0) }
+        let emoji = emojiForTelegramMessage(body)
+    // Structure: Cached device name first line, status/event (with emoji) second
+    let deviceName = lastUpsName
+    let secondLine = hasEmojiPrefix ? body : "\(emoji) \(body)"
+    let finalText = "\(deviceName)\n\(secondLine)"
         let payload: [String: Any] = [
             "chat_id": s.telegramChatId,
-            "text": body
+            "text": finalText
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
-        print("[Telegram] Sending to chat \(s.telegramChatId): \(body)")
+        print("[Telegram] Sending to chat \(s.telegramChatId): \(finalText)")
         URLSession.shared.dataTask(with: req) { data, response, error in
             if let error = error {
                 print("[Telegram] Error: \(error.localizedDescription)")
@@ -609,6 +685,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }.resume()
+    }
+
+    private func emojiForTelegramMessage(_ body: String) -> String {
+        let b = body.uppercased()
+        if b.contains("COMMLOST") { return "❌" }
+        if b.contains("ONBATT") || b.contains("EM BATERIA") || b.contains("ENTROU EM BATERIA") { return "🔋" }
+        if b.contains("NORMALIZADA") { return "✅" }
+        if b.contains("ONLINE") || b.contains("SAIU DA BATERIA") { return "🔌" }
+        if b.contains("SOBRETENSÃO") || b.contains("SUBTENSÃO") || b.contains("LINEV") { return "⚡️" }
+        if b.contains("FREQ") { return "📶" }
+        if b.contains("CHARG") { return "🔄" }
+        return "ℹ️"
     }
 
     // Somente disponível quando rodando como .app (Bundle válido) – evita crash do UNUserNotificationCenter
