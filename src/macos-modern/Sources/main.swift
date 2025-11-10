@@ -55,6 +55,22 @@ final class NisClient {
             if dict.isEmpty || dict["STATUS"] == nil {
                 if let text = self.runApcaccess() {
                     dict = self.parseKeyValueText(text)
+
+            // Voltage/Frequency monitoring controls
+            let voltageAlertsBox = NSButton(checkboxWithTitle: "Monitorar tensão/frequência", target: nil, action: nil)
+            voltageAlertsBox.state = Settings.shared.voltageAlertsEnabled ? .on : .off
+            let highVoltField = NSTextField(string: String(Settings.shared.voltageHigh))
+            highVoltField.placeholderString = "Tensão alta (V)"
+            highVoltField.isEditable = true; highVoltField.isSelectable = true
+            let lowVoltField = NSTextField(string: String(Settings.shared.voltageLow))
+            lowVoltField.placeholderString = "Tensão baixa (V)"
+            lowVoltField.isEditable = true; lowVoltField.isSelectable = true
+            let lowFreqField = NSTextField(string: String(Settings.shared.frequencyLow))
+            lowFreqField.placeholderString = "Freq. baixa (Hz)"
+            lowFreqField.isEditable = true; lowFreqField.isSelectable = true
+            let highFreqField = NSTextField(string: String(Settings.shared.frequencyHigh))
+            highFreqField.placeholderString = "Freq. alta (Hz)"
+            highFreqField.isEditable = true; highFreqField.isSelectable = true
                 }
             }
 
@@ -83,8 +99,14 @@ final class NisClient {
             if let data = cmd.data(using: .ascii) {
                 data.withUnsafeBytes { ptr in
                     guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+        let sep2 = NSBox(); sep2.boxType = .separator; stack.addArrangedSubview(sep2)
+        stack.addArrangedSubview(voltageAlertsBox)
+        stack.addArrangedSubview(labeled("Tensão Alta", highVoltField))
+        stack.addArrangedSubview(labeled("Tensão Baixa", lowVoltField))
+        stack.addArrangedSubview(labeled("Freq. Baixa", lowFreqField))
+        stack.addArrangedSubview(labeled("Freq. Alta", highFreqField))
                     output.write(base, maxLength: data.count)
-                }
+        stack.setFrameSize(NSSize(width: 440, height: 380))
             }
             output.close()
 
@@ -106,9 +128,19 @@ final class NisClient {
         }
         _ = semaphore.wait(timeout: .now() + timeout)
         return events
-    }
+                // Parse and store thresholds
+                let vh = Double(highVoltField.stringValue) ?? Settings.shared.voltageHigh
+                let vl = Double(lowVoltField.stringValue) ?? Settings.shared.voltageLow
+                let fl = Double(lowFreqField.stringValue) ?? Settings.shared.frequencyLow
+                let fh = Double(highFreqField.stringValue) ?? Settings.shared.frequencyHigh
+                Settings.shared.voltageHigh = max(200, min(300, vh))
+                Settings.shared.voltageLow = max(100, min(Settings.shared.voltageHigh - 10, vl))
+                Settings.shared.frequencyLow = max(40, min(Settings.shared.frequencyHigh - 1, fl))
+                Settings.shared.frequencyHigh = max(Settings.shared.frequencyLow + 1, min(70, fh))
+                Settings.shared.voltageAlertsEnabled = (voltageAlertsBox.state == .on)
+                Settings.shared.save()
 
-    private func openStream() -> (InputStream, OutputStream)? {
+                simpleAlert(title: "Salvo", message: "Host: \(validHost) Porta: \(validPort) Intervalo: \(validRefresh)s\nTelegram: \(Settings.shared.telegramEnabled ? \"On\" : \"Off\")\nMonitoração tensão/freq: \(Settings.shared.voltageAlertsEnabled ? \"On\" : \"Off\")")
         var inS: InputStream?; var outS: OutputStream?
         Stream.getStreamsToHost(withName: host, port: port, inputStream: &inS, outputStream: &outS)
         guard let i = inS, let o = outS else { return nil }
@@ -172,6 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var eventsCache: [String] = []
     var eventsWindow: EventsWindowController?
     var statusWindow: NSWindow?
+    // Track alert states to avoid spamming repeated voltage/frequency notifications
+    var lastVoltageAlerted: Bool = false
+    var lastFrequencyAlerted: Bool = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
@@ -227,6 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
+        menu.addItem(NSMenuItem(title: "Limpar eventos", action: #selector(clearEvents), keyEquivalent: "l"))
         menu.addItem(NSMenuItem(title: "Autoteste (em breve)", action: #selector(runSelfTestPlaceholder), keyEquivalent: "t"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Sair", action: #selector(quit), keyEquivalent: "q"))
@@ -256,21 +292,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 // Buscar eventos NIS
                 let nisEvents = self.client.fetchEvents()
-
-                // Fallback: se eventos NIS estiverem vazios, sintetizar evento por mudança de STATUS
                 let currentStatus = dict["STATUS"] ?? ""
-                var appendedSynthetic = false
+                let previousCount = self.eventsCache.count
                 if nisEvents.isEmpty {
-                    // Se ainda não temos eventos, criar um inicial
+                    // Sintetizar mudança de STATUS
                     if self.eventsCache.isEmpty && !currentStatus.isEmpty {
-                        let line = "\(self.timestamp()) Inicializado - Status: \(currentStatus)"
-                        self.eventsCache.append(line)
+                        self.eventsCache.append("\(self.timestamp()) Inicializado - Status: \(currentStatus)")
                         self.lastStatusText = currentStatus
-                        appendedSynthetic = true
                     } else if !currentStatus.isEmpty && currentStatus != self.lastStatusText {
-                        let line = "\(self.timestamp()) Mudança - Status: \(currentStatus)"
-                        self.eventsCache.append(line)
-                        appendedSynthetic = true
+                        self.eventsCache.append("\(self.timestamp()) Mudança - Status: \(currentStatus)")
                         self.lastStatusText = currentStatus
                     }
                 } else {
@@ -278,11 +308,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.lastStatusText = currentStatus
                 }
 
-                // Notificar última linha quando houver novidade
-                if let last = self.eventsCache.last, last != self.lastEventLine || appendedSynthetic {
-                    self.lastEventLine = last
-                    self.postNotification(title: "APC UPS", body: last)
-                    self.sendTelegram(body: last)
+                // Voltage/Frequency monitoring
+                let s = Settings.shared
+                if s.voltageAlertsEnabled {
+                    func parseFirst(_ raw: String?) -> Double? {
+                        guard let raw = raw else { return nil }
+                        let first = raw.split(separator: " ").first
+                        return first.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                    }
+                    if let linev = parseFirst(dict["LINEV"]) {
+                        if (linev < s.voltageLow || linev > s.voltageHigh) {
+                            if !self.lastVoltageAlerted {
+                                let kind = linev < s.voltageLow ? "SUBTENSÃO" : "SOBRETENSÃO"
+                                self.eventsCache.append("\(self.timestamp()) Alerta \(kind) LINEV=\(String(format: "%.1f", linev))V (limites \(s.voltageLow)-\(s.voltageHigh))")
+                                self.lastVoltageAlerted = true
+                            }
+                        } else if self.lastVoltageAlerted {
+                            self.eventsCache.append("\(self.timestamp()) Tensão normalizada LINEV=\(String(format: "%.1f", linev))V")
+                            self.lastVoltageAlerted = false
+                        }
+                    }
+                    if let freq = parseFirst(dict["LINEFREQ"]) {
+                        if (freq < s.frequencyLow || freq > s.frequencyHigh) {
+                            if !self.lastFrequencyAlerted {
+                                let kind = freq < s.frequencyLow ? "FREQ BAIXA" : "FREQ ALTA"
+                                self.eventsCache.append("\(self.timestamp()) Alerta \(kind) LINEFREQ=\(String(format: "%.1f", freq))Hz (limites \(s.frequencyLow)-\(s.frequencyHigh))")
+                                self.lastFrequencyAlerted = true
+                            }
+                        } else if self.lastFrequencyAlerted {
+                            self.eventsCache.append("\(self.timestamp()) Frequência normalizada LINEFREQ=\(String(format: "%.1f", freq))Hz")
+                            self.lastFrequencyAlerted = false
+                        }
+                    }
+                }
+
+                if self.eventsCache.count > previousCount {
+                    for line in self.eventsCache.suffix(self.eventsCache.count - previousCount) {
+                        if line != self.lastEventLine {
+                            self.postNotification(title: "APC UPS", body: line)
+                            self.sendTelegram(body: line)
+                            self.lastEventLine = line
+                        }
+                    }
                 }
                 self.eventsWindow?.update(with: self.eventsCache)
             }
@@ -490,6 +557,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postNotification(title: "APC UPS", body: msg)
         sendTelegram(body: msg)
     }
+    @objc func clearEvents() {
+        eventsCache.removeAll()
+        lastEventLine = ""
+        lastStatusText = ""
+        lastVoltageAlerted = false
+        lastFrequencyAlerted = false
+        eventsWindow?.update(with: eventsCache)
+    }
 
     @objc func openNotificationSettings() {
         // Try modern and legacy URLs
@@ -521,12 +596,23 @@ final class Settings {
     private let kTgEnabled = "tgEnabled"
     private let kTgToken = "tgToken"
     private let kTgChat = "tgChat"
+    private let kVoltHigh = "voltHigh"
+    private let kVoltLow = "voltLow"
+    private let kFreqLow = "freqLow"
+    private let kFreqHigh = "freqHigh"
+    private let kVoltageAlerts = "voltageAlerts"
     var host: String = "127.0.0.1"
     var port: Int = 3551
     var refreshSeconds: Int = 10
     var telegramEnabled: Bool = false
     var telegramBotToken: String = ""
     var telegramChatId: String = ""
+    // Monitoring thresholds (defaults typical for 220V / 60Hz region, adjust as needed)
+    var voltageHigh: Double = 255.0
+    var voltageLow: Double = 180.0
+    var frequencyLow: Double = 55.0
+    var frequencyHigh: Double = 65.0
+    var voltageAlertsEnabled: Bool = true
 
     func load() {
         let d = UserDefaults.standard
@@ -536,6 +622,11 @@ final class Settings {
         telegramEnabled = d.object(forKey: kTgEnabled) as? Bool ?? false
         if let t = d.string(forKey: kTgToken) { telegramBotToken = t }
         if let c = d.string(forKey: kTgChat) { telegramChatId = c }
+        let vh = d.double(forKey: kVoltHigh); if vh != 0 { voltageHigh = vh }
+        let vl = d.double(forKey: kVoltLow); if vl != 0 { voltageLow = vl }
+        let fl = d.double(forKey: kFreqLow); if fl != 0 { frequencyLow = fl }
+        let fh = d.double(forKey: kFreqHigh); if fh != 0 { frequencyHigh = fh }
+        voltageAlertsEnabled = d.object(forKey: kVoltageAlerts) as? Bool ?? voltageAlertsEnabled
     }
     func save() {
         let d = UserDefaults.standard
@@ -545,6 +636,11 @@ final class Settings {
         d.set(telegramEnabled, forKey: kTgEnabled)
         d.set(telegramBotToken, forKey: kTgToken)
         d.set(telegramChatId, forKey: kTgChat)
+        d.set(voltageHigh, forKey: kVoltHigh)
+        d.set(voltageLow, forKey: kVoltLow)
+        d.set(frequencyLow, forKey: kFreqLow)
+        d.set(frequencyHigh, forKey: kFreqHigh)
+        d.set(voltageAlertsEnabled, forKey: kVoltageAlerts)
     }
 }
 
