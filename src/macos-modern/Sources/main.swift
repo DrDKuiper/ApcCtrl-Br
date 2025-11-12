@@ -1,5 +1,4 @@
-    private let kCycleCount = "cycleCount"
-    var cycleCount: Int = 0
+// (moved into Settings) kCycleCount, cycleCount
 // apcctrl macOS modern agent prototype
 // GPLv2 - see COPYING in project root
 // Minimal menubar app in Swift using AppKit
@@ -8,6 +7,11 @@ import Cocoa
 import UserNotifications
 import Foundation
 import SwiftUI
+import ServiceManagement
+// Charts is available on macOS 13+
+#if canImport(Charts)
+import Charts
+#endif
 
 // Simple NIS client to talk to apcctrl daemon
 final class NisClient {
@@ -17,44 +21,7 @@ final class NisClient {
         self.host = host; self.port = port
     }
 
-    // Monta e envia o log consolidado dos eventos do dia (inclui ciclos e capacidade)
-    func sendDailyEventsLog() {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        // Filtra eventos do dia (espera timestamp ISO curto no início: yyyy-MM-dd ...)
-        let eventosHoje = eventsCache.filter { line in
-            guard let first = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first else { return false }
-            let dstr = String(first)
-            if dstr.count < 10 { return false }
-            return (try? DateFormatter.cached.date(from: String(dstr.prefix(10))))?.timeIntervalSince1970 ?? 0 >= today.timeIntervalSince1970
-        }
-        let name = lastUpsName
-        var log = "[Log diário do nobreak]"
-        log += "\nNome: \(name)"
-        log += "\nData: \(DateFormatter.cached.string(from: Date()))"
-        // Ciclos e capacidade
-        let cycles = Settings.shared.cycleCount
-        let capAh = Settings.shared.estimatedCapacityAh
-        let capLine = capAh > 0 ? String(format: "%.1f Ah (%d amostras)", capAh, Settings.shared.estimatedCapacitySamples) : "--"
-        log += "\nCiclos: \(cycles)"
-        log += "\nCapacidade estimada: \(capLine)"
-        // Eventos
-        log += "\nEventos do dia:"
-        if eventosHoje.isEmpty { log += "\n(nenhum evento registrado hoje)" }
-        else { log += "\n- " + eventosHoje.joined(separator: "\n- ") }
-        sendTelegram(body: log)
-        print("[DailyLog] Log diário enviado para o Telegram")
-    }
-
-// DateFormatter otimizado para datas yyyy-MM-dd
-extension DateFormatter {
-    static let cached: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-}
+    
 
     enum UpsState: String { case commlost, onbatt, charging, online }
 
@@ -213,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var eventsCache: [String] = []
     var eventsWindow: EventsWindowController?
     var selfTestsWindow: SelfTestsWindowController?
+    var graphsWindow: GraphsWindowController?
     var statusWindow: NSWindow?
     // Track alert states to avoid spamming repeated voltage/frequency notifications
     var lastVoltageAlerted: Bool = false
@@ -230,6 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var dailyLogHour: Int = 8 // Agora configurável pelo usuário
     // Cache last known UPS name to avoid blocking lookups in notifications
     var lastUpsName: String = "UPS"
+    // Metrics store for charts
+    let metrics = MetricsStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
@@ -265,6 +235,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startTimer()
         startDailyLogTimer()
     }
+
+    // Inicia (ou reinicia) o timer de polling principal
+    func startTimer() {
+        timer?.invalidate()
+        let interval = max(2.0, Double(Settings.shared.refreshSeconds))
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
+    }
+    // Constroi/Reconstroi o menu principal
+    func constructMenu() {
+        let menu = NSMenu()
+        if #available(macOS 11.0, *) {
+            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
+        } else {
+            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: ""))
+        }
+        menu.addItem(NSMenuItem(title: "Eventos", action: #selector(showEvents), keyEquivalent: "e"))
+        menu.addItem(NSMenuItem(title: "Notificação de teste", action: #selector(sendTestNotification), keyEquivalent: "n"))
+        menu.addItem(NSMenuItem(title: "Enviar log do status", action: #selector(sendStatusLog), keyEquivalent: "g"))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
+        menu.addItem(NSMenuItem(title: "Limpar eventos", action: #selector(clearEvents), keyEquivalent: "l"))
+        menu.addItem(NSMenuItem(title: "Autotestes", action: #selector(showSelfTests), keyEquivalent: "t"))
+    menu.addItem(NSMenuItem(title: "Gráficos", action: #selector(showGraphs), keyEquivalent: "h"))
+        menu.addItem(NSMenuItem.separator())
+        // Preferências de Notificações (atalho para sistema)
+        menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
+        // Auto-start toggle
+        let autoStartItem = NSMenuItem(title: "Iniciar com o sistema", action: #selector(toggleAutoStart), keyEquivalent: "a")
+        autoStartItem.state = isAutoStartEnabled() ? .on : .off
+        menu.addItem(autoStartItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Sair", action: #selector(quit), keyEquivalent: "q"))
+        statusItem.menu = menu
+    }
+
+    // Monta e envia o log consolidado dos eventos do dia (inclui ciclos e capacidade)
+    func sendDailyEventsLog() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        // Filtra eventos do dia (espera timestamp ISO curto no início: yyyy-MM-dd ...)
+        let eventosHoje = eventsCache.filter { line in
+            guard let first = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first else { return false }
+            let dstr = String(first)
+            if dstr.count < 10 { return false }
+            return (try? DateFormatter.cached.date(from: String(dstr.prefix(10))))?.timeIntervalSince1970 ?? 0 >= today.timeIntervalSince1970
+        }
+        let name = lastUpsName
+        var log = "[Log diário do nobreak]"
+        log += "\nNome: \(name)"
+        log += "\nData: \(DateFormatter.cached.string(from: Date()))"
+        // Ciclos e capacidade
+        let cycles = Settings.shared.cycleCount
+        let capAh = Settings.shared.estimatedCapacityAh
+        let capLine = capAh > 0 ? String(format: "%.1f Ah (%d amostras)", capAh, Settings.shared.estimatedCapacitySamples) : "--"
+        log += "\nCiclos: \(cycles)"
+        log += "\nCapacidade estimada: \(capLine)"
+        // Eventos
+        log += "\nEventos do dia:"
+        if eventosHoje.isEmpty { log += "\n(nenhum evento registrado hoje)" }
+        else { log += "\n- " + eventosHoje.joined(separator: "\n- ") }
+        sendTelegram(body: log)
+        print("[DailyLog] Log diário enviado para o Telegram")
+    }
     // Inicia timer para envio automático do log diário
     func startDailyLogTimer() {
         dailyLogTimer?.invalidate()
@@ -289,12 +325,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
     }
-        menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
-    // Auto-start toggle
-    let autoStartItem = NSMenuItem(title: "Iniciar com o sistema", action: #selector(toggleAutoStart), keyEquivalent: "a")
-    autoStartItem.state = isAutoStartEnabled() ? .on : .off
-    menu.addItem(autoStartItem)
-    menu.addItem(NSMenuItem.separator())
     // Alterna início automático com o sistema
     @objc func toggleAutoStart(_ sender: NSMenuItem) {
         let enabled = !isAutoStartEnabled()
@@ -326,24 +356,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let bundleID = Bundle.main.bundleIdentifier! as CFString
             SMLoginItemSetEnabled(bundleID, enabled)
         }
-    }
-        // Menu principal
-        let menu = NSMenu()
-        if #available(macOS 11.0, *) {
-            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
-        } else {
-            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: ""))
-        }
-        menu.addItem(NSMenuItem(title: "Eventos", action: #selector(showEvents), keyEquivalent: "e"))
-        menu.addItem(NSMenuItem(title: "Notificação de teste", action: #selector(sendTestNotification), keyEquivalent: "n"))
-        menu.addItem(NSMenuItem(title: "Enviar log do status", action: #selector(sendStatusLog), keyEquivalent: "g"))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
-        menu.addItem(NSMenuItem(title: "Limpar eventos", action: #selector(clearEvents), keyEquivalent: "l"))
-    menu.addItem(NSMenuItem(title: "Autotestes", action: #selector(showSelfTests), keyEquivalent: "t"))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Sair", action: #selector(quit), keyEquivalent: "q"))
-        statusItem.menu = menu
     }
 
     // Envia um snapshot de status com ciclos e capacidade
@@ -394,6 +406,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             
             // Update UI on main thread
             DispatchQueue.main.async {
+                // Append metric sample for charts
+                func parseFirst(_ raw: String?) -> Double? {
+                    guard let raw = raw else { return nil }
+                    let first = raw.split(separator: " ").first
+                    return first.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                }
+                let sample = MetricSample(
+                    time: Date(),
+                    charge: parseFirst(dict["BCHARGE"]),
+                    load: parseFirst(dict["LOADPCT"]),
+                    lineV: parseFirst(dict["LINEV"]),
+                    freq: parseFirst(dict["LINEFREQ"]))
+                self.metrics.append(sample)
                 if let button = self.statusItem.button {
                     switch state {
                     case .commlost: button.image = self.makeIcon(system: "bolt.slash")
@@ -580,6 +605,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             win.showWindow(nil)
             win.window?.makeKeyAndOrderFront(nil)
             win.update(with: eventsCache)
+        }
+    }
+    @objc func showGraphs() {
+        if graphsWindow == nil { graphsWindow = GraphsWindowController(store: metrics) }
+        if let win = graphsWindow {
+            win.showWindow(nil)
+            win.window?.makeKeyAndOrderFront(nil)
         }
     }
     @objc func showConfig() {
@@ -1010,6 +1042,7 @@ final class Settings {
     private let kLastOnBatt = "lastOnBattSeconds"
     private let kDailyLogHour = "dailyLogHour"
     private let kUpsNominalWatts = "upsNominalWatts"
+    private let kCycleCount = "cycleCount"
     private let kBattNominalV = "batteryNominalVoltage"
     private let kBattNominalAh = "batteryNominalAh"
     private let kBattReplacedEpoch = "batteryReplacedEpoch"
@@ -1039,6 +1072,8 @@ final class Settings {
     // Estimated capacity tracking
     var estimatedCapacityAh: Double = 0
     var estimatedCapacitySamples: Int = 0
+    // Battery cycles count
+    var cycleCount: Int = 0
 
     func load() {
         let d = UserDefaults.standard
@@ -1272,6 +1307,142 @@ struct StatusView: View {
     }
 }
 
+// DateFormatter otimizado para datas yyyy-MM-dd (file-scope, reutilizável)
+extension DateFormatter {
+    static let cached: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+}
+
+// MARK: - Metrics models and store
+struct MetricSample: Identifiable {
+    let id = UUID()
+    let time: Date
+    let charge: Double?
+    let load: Double?
+    let lineV: Double?
+    let freq: Double?
+}
+
+final class MetricsStore: ObservableObject {
+    @Published var samples: [MetricSample] = []
+    var maxSamples: Int = 1000
+    func append(_ s: MetricSample) {
+        samples.append(s)
+        if samples.count > maxSamples {
+            samples.removeFirst(samples.count - maxSamples)
+        }
+    }
+}
+
+#if canImport(Charts)
+@available(macOS 13.0, *)
+struct GraphsView: View {
+    @ObservedObject var store: MetricsStore
+    enum Metric: String, CaseIterable, Identifiable {
+        case charge, load, lineV, freq
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .charge: return "Bateria (%)"
+            case .load:   return "Carga (%)"
+            case .lineV:  return "Tensão (V)"
+            case .freq:   return "Frequência (Hz)"
+            }
+        }
+    }
+    enum Range: String, CaseIterable, Identifiable { case h1, h6, h24
+        var id: String { rawValue }
+        var title: String { switch self { case .h1: return "1h"; case .h6: return "6h"; case .h24: return "24h" } }
+        var hours: Double { switch self { case .h1: return 1; case .h6: return 6; case .h24: return 24 } }
+    }
+    @State private var metric: Metric = .charge
+    @State private var range: Range = .h6
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Picker("Métrica", selection: $metric) {
+                    ForEach(Metric.allCases) { m in Text(m.title).tag(m) }
+                }.pickerStyle(.segmented)
+                Picker("Janela", selection: $range) {
+                    ForEach(Range.allCases) { r in Text(r.title).tag(r) }
+                }.pickerStyle(.segmented).frame(width: 180)
+                Spacer()
+            }
+            Chart(filteredSamples) { s in
+                switch metric {
+                case .charge:
+                    if let y = s.charge { LineMark(x: .value("Hora", s.time), y: .value("%", y)) }
+                case .load:
+                    if let y = s.load { LineMark(x: .value("Hora", s.time), y: .value("%", y)) }
+                case .lineV:
+                    if let y = s.lineV { LineMark(x: .value("Hora", s.time), y: .value("V", y)) }
+                case .freq:
+                    if let y = s.freq { LineMark(x: .value("Hora", s.time), y: .value("Hz", y)) }
+                }
+            }
+            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 6)) }
+            .frame(minHeight: 360)
+        }
+        .padding(12)
+    }
+
+    private var filteredSamples: [MetricSample] {
+        let cutoff = Date().addingTimeInterval(-range.hours * 3600)
+        return store.samples.filter { $0.time >= cutoff }
+    }
+}
+#else
+struct GraphsViewLegacy: View {
+    @ObservedObject var store: MetricsStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Gráficos requerem macOS 13+ (Swift Charts). Exibindo amostras cruas:")
+                .font(.headline)
+            ScrollView {
+                ForEach(store.samples) { s in
+                    Text("\(s.time): Carga=\(s.load ?? .nan), Bateria=\(s.charge ?? .nan), V=\(s.lineV ?? .nan), Hz=\(s.freq ?? .nan)")
+                        .font(.system(size: 11))
+                        .monospaced()
+                }
+            }
+        }
+        .padding(12)
+    }
+}
+#endif
+
+// MARK: - Graphs Window
+final class GraphsWindowController: NSWindowController, NSWindowDelegate {
+    init(store: MetricsStore) {
+        #if canImport(Charts)
+        if #available(macOS 13.0, *) {
+            let hosting = NSHostingController(rootView: GraphsView(store: store))
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Gráficos"
+            window.setContentSize(NSSize(width: 720, height: 520))
+            window.styleMask = [.titled, .closable, .resizable]
+            super.init(window: window)
+            window.delegate = self
+            return
+        }
+        #endif
+        let hosting = NSHostingController(rootView: GraphsViewLegacy(store: store))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Gráficos"
+        window.setContentSize(NSSize(width: 720, height: 520))
+        window.styleMask = [.titled, .closable, .resizable]
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 struct MetricCard: View {
     let title: String
     let value: String
@@ -1389,8 +1560,7 @@ final class SelfTestsWindowController: NSWindowController, NSWindowDelegate {
         scroll.documentView = textView
         window.contentView?.addSubview(scroll)
         if #available(macOS 10.14, *) {
-            kvoAppearanceObservation = window.observe(\.
-effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            kvoAppearanceObservation = window.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
                 self?.updateColors()
             }
         }
