@@ -1,3 +1,5 @@
+    private let kCycleCount = "cycleCount"
+    var cycleCount: Int = 0
 // apcctrl macOS modern agent prototype
 // GPLv2 - see COPYING in project root
 // Minimal menubar app in Swift using AppKit
@@ -14,6 +16,45 @@ final class NisClient {
     init(host: String = "127.0.0.1", port: Int = 3551) {
         self.host = host; self.port = port
     }
+
+    // Monta e envia o log consolidado dos eventos do dia (inclui ciclos e capacidade)
+    func sendDailyEventsLog() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        // Filtra eventos do dia (espera timestamp ISO curto no início: yyyy-MM-dd ...)
+        let eventosHoje = eventsCache.filter { line in
+            guard let first = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first else { return false }
+            let dstr = String(first)
+            if dstr.count < 10 { return false }
+            return (try? DateFormatter.cached.date(from: String(dstr.prefix(10))))?.timeIntervalSince1970 ?? 0 >= today.timeIntervalSince1970
+        }
+        let name = lastUpsName
+        var log = "[Log diário do nobreak]"
+        log += "\nNome: \(name)"
+        log += "\nData: \(DateFormatter.cached.string(from: Date()))"
+        // Ciclos e capacidade
+        let cycles = Settings.shared.cycleCount
+        let capAh = Settings.shared.estimatedCapacityAh
+        let capLine = capAh > 0 ? String(format: "%.1f Ah (%d amostras)", capAh, Settings.shared.estimatedCapacitySamples) : "--"
+        log += "\nCiclos: \(cycles)"
+        log += "\nCapacidade estimada: \(capLine)"
+        // Eventos
+        log += "\nEventos do dia:"
+        if eventosHoje.isEmpty { log += "\n(nenhum evento registrado hoje)" }
+        else { log += "\n- " + eventosHoje.joined(separator: "\n- ") }
+        sendTelegram(body: log)
+        print("[DailyLog] Log diário enviado para o Telegram")
+    }
+
+// DateFormatter otimizado para datas yyyy-MM-dd
+extension DateFormatter {
+    static let cached: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+}
 
     enum UpsState: String { case commlost, onbatt, charging, online }
 
@@ -171,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastStatusText: String = ""
     var eventsCache: [String] = []
     var eventsWindow: EventsWindowController?
+    var selfTestsWindow: SelfTestsWindowController?
     var statusWindow: NSWindow?
     // Track alert states to avoid spamming repeated voltage/frequency notifications
     var lastVoltageAlerted: Bool = false
@@ -178,6 +220,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Track on-battery timing
     var onBatteryStart: Date? = nil
     var lastOnBatteryDuration: TimeInterval = 0
+    // Capacity estimation state (captured at start of ONBATT)
+    var onBattStartBcharge: Double? = nil
+    var onBattStartLoadPct: Double? = nil
+    var onBattStartBattV: Double? = nil
+    // Agendamento de log diário
+    var dailyLogTimer: Timer?
+    var lastDailyLogDate: Date? = nil
+    var dailyLogHour: Int = 8 // Agora configurável pelo usuário
     // Cache last known UPS name to avoid blocking lookups in notifications
     var lastUpsName: String = "UPS"
 
@@ -192,6 +242,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lastOnBatteryDuration = Settings.shared.lastOnBattSeconds
         constructMenu()
+        // Carregar horário do log diário da configuração
+        if Settings.shared.dailyLogHour != 0 {
+            dailyLogHour = Settings.shared.dailyLogHour
+        }
         // Solicitar permissão para notificações (somente quando rodando dentro de um .app bundle)
         if canUseUserNotifications() {
             let center = UNUserNotificationCenter.current()
@@ -209,42 +263,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         poll()
         startTimer()
+        startDailyLogTimer()
+    }
+    // Inicia timer para envio automático do log diário
+    func startDailyLogTimer() {
+        dailyLogTimer?.invalidate()
+        dailyLogTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkAndSendDailyLog()
+        }
+        RunLoop.main.add(dailyLogTimer!, forMode: .common)
     }
 
-    // Show notifications even when app is foreground
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        if #available(macOS 11.0, *) {
-            completionHandler([.banner, .list, .sound])
+    // Verifica se é hora de enviar o log diário e envia se necessário
+    func checkAndSendDailyLog() {
+        let now = Date()
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: now)
+        let minute = calendar.component(.minute, from: now)
+        let today = calendar.startOfDay(for: now)
+        // Só envia uma vez por dia, no horário programado (ex: 08:00)
+        if hour == dailyLogHour && minute < 5 {
+            if lastDailyLogDate == nil || calendar.startOfDay(for: lastDailyLogDate!) < today {
+                sendDailyEventsLog()
+                lastDailyLogDate = now
+            }
+        }
+    }
+        menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
+    // Auto-start toggle
+    let autoStartItem = NSMenuItem(title: "Iniciar com o sistema", action: #selector(toggleAutoStart), keyEquivalent: "a")
+    autoStartItem.state = isAutoStartEnabled() ? .on : .off
+    menu.addItem(autoStartItem)
+    menu.addItem(NSMenuItem.separator())
+    // Alterna início automático com o sistema
+    @objc func toggleAutoStart(_ sender: NSMenuItem) {
+        let enabled = !isAutoStartEnabled()
+        setAutoStart(enabled)
+        sender.state = enabled ? .on : .off
+    }
+
+    // Verifica se o app está configurado para iniciar com o sistema
+    func isAutoStartEnabled() -> Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
         } else {
-            completionHandler([.alert, .sound])
+            let bundleID = Bundle.main.bundleIdentifier ?? ""
+            let jobs = (SMCopyAllJobDictionaries(kSMDomainUserLaunchd)?.takeRetainedValue() as? [[String: AnyObject]]) ?? []
+            return jobs.contains { ($0["Label"] as? String) == bundleID }
         }
-    }
-    func startTimer() {
-        timer?.invalidate()
-        let interval = max(2.0, TimeInterval(Settings.shared.refreshSeconds))
-        print("[Timer] Starting with interval: \(interval)s")
-        // Create timer and add to main run loop in common mode (keeps firing during menu/window interactions)
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            print("[Timer] Poll triggered at \(Date())")
-            self?.poll()
-        }
-        timer = t
-        RunLoop.main.add(t, forMode: .common)
     }
 
-    func constructMenu() {
+    // Ativa/desativa início automático usando SMAppService (Ventura+) ou ServiceManagement
+    func setAutoStart(_ enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            if enabled {
+                try? SMAppService.mainApp.register()
+            } else {
+                try? SMAppService.mainApp.unregister()
+            }
+        } else {
+            // Para versões antigas, usar ServiceManagement
+            let bundleID = Bundle.main.bundleIdentifier! as CFString
+            SMLoginItemSetEnabled(bundleID, enabled)
+        }
+    }
+        // Menu principal
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
+        if #available(macOS 11.0, *) {
+            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: "s"))
+        } else {
+            menu.addItem(NSMenuItem(title: "Status", action: #selector(showStatus), keyEquivalent: ""))
+        }
         menu.addItem(NSMenuItem(title: "Eventos", action: #selector(showEvents), keyEquivalent: "e"))
         menu.addItem(NSMenuItem(title: "Notificação de teste", action: #selector(sendTestNotification), keyEquivalent: "n"))
-        menu.addItem(NSMenuItem(title: "Abrir Preferências de Notificações", action: #selector(openNotificationSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Enviar log do status", action: #selector(sendStatusLog), keyEquivalent: "g"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Configuração", action: #selector(showConfig), keyEquivalent: "c"))
         menu.addItem(NSMenuItem(title: "Limpar eventos", action: #selector(clearEvents), keyEquivalent: "l"))
-        menu.addItem(NSMenuItem(title: "Autoteste (em breve)", action: #selector(runSelfTestPlaceholder), keyEquivalent: "t"))
+    menu.addItem(NSMenuItem(title: "Autotestes", action: #selector(showSelfTests), keyEquivalent: "t"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Sair", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    // Envia um snapshot de status com ciclos e capacidade
+    @objc func sendStatusLog() {
+        let (_, dict) = client.fetchStatus()
+        var log = "[Resumo do Nobreak]"
+        let name = dict["UPSNAME"] ?? lastUpsName
+        let status = dict["STATUS"] ?? "?"
+        let charge = dict["BCHARGE"] ?? "--"
+        let load = dict["LOADPCT"] ?? "--"
+        let linev = dict["LINEV"] ?? "--"
+        let outputv = dict["OUTPUTV"] ?? "--"
+        let freq = dict["LINEFREQ"] ?? "--"
+        let timeleft = dict["TIMELEFT"] ?? "--"
+        let cycles = Settings.shared.cycleCount
+        let capAh = Settings.shared.estimatedCapacityAh
+        let capLine = capAh > 0 ? String(format: "%.1f Ah (%d amostras)", capAh, Settings.shared.estimatedCapacitySamples) : "--"
+        log += "\nNome: \(name)"
+        log += "\nStatus: \(status)"
+        log += "\nBateria: \(charge)"
+        log += "\nCarga: \(load)"
+        log += "\nTensão entrada: \(linev)"
+        log += "\nTensão saída: \(outputv)"
+        log += "\nFrequência: \(freq)"
+        log += "\nTempo restante: \(timeleft)"
+        log += "\nCiclos: \(cycles)"
+        log += "\nCapacidade estimada: \(capLine)"
+        // Últimos eventos
+        let ultimos = eventsCache.suffix(5).joined(separator: "\n- ")
+        if !ultimos.isEmpty { log += "\nEventos recentes:\n- \(ultimos)" }
+        sendTelegram(body: log)
+        simpleAlert(title: "Log enviado", message: "Resumo enviado para o Telegram.")
     }
 
     @objc func poll() {
@@ -254,6 +385,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self = self else { return }
             let (state, dict) = self.client.fetchStatus()
             print("[Poll] Fetched status: \(dict["STATUS"] ?? "N/A"), state: \(state)")
+            // Incrementa ciclo se transição para ONBATT
+            if self.lastState != .onbatt && state == .onbatt {
+                Settings.shared.cycleCount += 1
+                Settings.shared.save()
+            }
+            self.lastState = state
             
             // Update UI on main thread
             DispatchQueue.main.async {
@@ -273,6 +410,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             self.onBatteryStart = Date()
                             Settings.shared.onBattStartEpoch = self.onBatteryStart!.timeIntervalSince1970
                             Settings.shared.save()
+                            // Capture start-of-cycle metrics
+                            if let ch = dict["BCHARGE"], let v = ch.split(separator: " ").first, let pv = Double(v.replacingOccurrences(of: ",", with: ".")) {
+                                self.onBattStartBcharge = pv
+                            } else { self.onBattStartBcharge = nil }
+                            if let ld = dict["LOADPCT"], let v = ld.split(separator: " ").first, let pl = Double(v.replacingOccurrences(of: ",", with: ".")) {
+                                self.onBattStartLoadPct = pl
+                            } else { self.onBattStartLoadPct = nil }
+                            if let bv = dict["BATTV"]?.split(separator: " ").first, let p = Double(bv.replacingOccurrences(of: ",", with: ".")) {
+                                self.onBattStartBattV = p
+                            } else { self.onBattStartBattV = nil }
                         }
                     } else if let start = self.onBatteryStart {
                         let dur = Date().timeIntervalSince(start)
@@ -280,7 +427,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         Settings.shared.lastOnBattSeconds = dur
                         Settings.shared.onBattStartEpoch = 0
                         Settings.shared.save()
+                        // Compute estimated capacity if we have start metrics and current percent
+                        if let startPct = self.onBattStartBcharge {
+                            var endPct: Double? = nil
+                            if let ch = dict["BCHARGE"], let v = ch.split(separator: " ").first, let pv = Double(v.replacingOccurrences(of: ",", with: ".")) {
+                                endPct = pv
+                            }
+                            let loadPct = (self.onBattStartLoadPct ?? dict["LOADPCT"].flatMap { $0.split(separator: " ").first }.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) } ) ?? 0
+                            let battVolt = dict["NOMBATTV"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") } ?? self.onBattStartBattV ?? Settings.shared.batteryNominalVoltage
+                            let upsWatts = dict["NOMPOWER"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") } ?? Settings.shared.upsNominalWatts
+                            let eff = 0.85
+                            let pf = 1.0 // NOMPOWER já é em Watts, então PF=1
+                            let pout = max(10.0, upsWatts * (loadPct/100.0) * pf)
+                            let iLoad = pout / max(10.0, battVolt * eff)
+                            if let end = endPct, startPct > end {
+                                let deltaSOC = max(0.05, (startPct - end) / 100.0)
+                                let hours = max(0.01, dur / 3600.0)
+                                let estAh = (iLoad * hours) / deltaSOC
+                                // EMA smoothing
+                                let prev = Settings.shared.estimatedCapacityAh
+                                let alpha = 0.3
+                                let newEst = (prev <= 0) ? estAh : (alpha * estAh + (1 - alpha) * prev)
+                                Settings.shared.estimatedCapacityAh = newEst
+                                Settings.shared.estimatedCapacitySamples = Settings.shared.estimatedCapacitySamples + 1
+                                Settings.shared.save()
+                            }
+                        }
                         self.onBatteryStart = nil
+                        self.onBattStartBcharge = nil
+                        self.onBattStartLoadPct = nil
+                        self.onBattStartBattV = nil
                     }
                     let emoji = self.emojiForStatus(statusText)
                     var batteryLine = ""
@@ -367,6 +543,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     }
                 }
                 self.eventsWindow?.update(with: self.eventsCache)
+                // Atualiza janela de autotestes se aberta
+                if let stWin = self.selfTestsWindow {
+                    stWin.update(with: self.extractSelfTestEvents(from: self.eventsCache))
+                }
             }
         }
     }
@@ -404,8 +584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     @objc func showConfig() {
         let alert = NSAlert()
-        alert.messageText = "Configuração NIS"
-        alert.informativeText = "Editar parâmetros de conexão, intervalo e alertas."
+    alert.messageText = "Configuração"
+    alert.informativeText = "Editar parâmetros de conexão, intervalo, alertas e bateria."
         alert.addButton(withTitle: "Salvar")
         alert.addButton(withTitle: "Cancelar")
 
@@ -453,10 +633,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         highFreqField.placeholderString = "Freq. alta (Hz)"
         highFreqField.isEditable = true; highFreqField.isSelectable = true
 
+        // Campos de bateria/UPS
+        let upsWattsField = NSTextField(string: String(Settings.shared.upsNominalWatts))
+        upsWattsField.placeholderString = "Potência nominal (W)"
+        let battVoltField = NSTextField(string: String(Settings.shared.batteryNominalVoltage))
+        battVoltField.placeholderString = "Bateria nominal (V)"
+        let battAhField = NSTextField(string: String(Settings.shared.batteryNominalAh))
+        battAhField.placeholderString = "Bateria nominal (Ah)"
+        let replaceDateString: String = {
+            let ts = Settings.shared.batteryReplacedEpoch
+            if ts > 0 { return DateFormatter.cached.string(from: Date(timeIntervalSince1970: ts)) }
+            return ""
+        }()
+        let replaceDateField = NSTextField(string: replaceDateString)
+        replaceDateField.placeholderString = "yyyy-MM-dd"
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 4
-        func labeled(_ title: String, _ field: NSTextField) -> NSView {
+        func labeled(_ title: String, _ field: NSView) -> NSView {
             let h = NSStackView()
             h.orientation = .horizontal
             h.spacing = 6
@@ -466,25 +661,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             NSLayoutConstraint.activate([label.widthAnchor.constraint(greaterThanOrEqualToConstant: 100)])
             h.addArrangedSubview(label)
-            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            NSLayoutConstraint.activate([field.widthAnchor.constraint(greaterThanOrEqualToConstant: 200)])
+            if let tf = field as? NSTextField {
+                tf.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                NSLayoutConstraint.activate([tf.widthAnchor.constraint(greaterThanOrEqualToConstant: 200)])
+            }
             h.addArrangedSubview(field)
             return h
         }
-    stack.addArrangedSubview(labeled("Host", hostField))
-    stack.addArrangedSubview(labeled("Porta", portField))
-    stack.addArrangedSubview(labeled("Intervalo (s)", refreshField))
+        stack.addArrangedSubview(labeled("Host", hostField))
+        stack.addArrangedSubview(labeled("Porta", portField))
+        stack.addArrangedSubview(labeled("Intervalo (s)", refreshField))
+        // Bateria/UPS
+        stack.addArrangedSubview(labeled("Potência nominal (W)", upsWattsField))
+        stack.addArrangedSubview(labeled("Bateria nominal (V)", battVoltField))
+        stack.addArrangedSubview(labeled("Bateria nominal (Ah)", battAhField))
+        stack.addArrangedSubview(labeled("Troca da bateria (yyyy-MM-dd)", replaceDateField))
     let sep = NSBox()
     sep.boxType = .separator
     stack.addArrangedSubview(sep)
-    stack.addArrangedSubview(tgEnabled)
-    stack.addArrangedSubview(labeled("Bot Token", tgTokenField))
-    stack.addArrangedSubview(labeled("Chat ID", tgChatField))
-    stack.addArrangedSubview(voltageAlertsBox)
-    stack.addArrangedSubview(labeled("Tensão Alta", highVoltField))
-    stack.addArrangedSubview(labeled("Tensão Baixa", lowVoltField))
-    stack.addArrangedSubview(labeled("Freq. Baixa", lowFreqField))
-    stack.addArrangedSubview(labeled("Freq. Alta", highFreqField))
+        stack.addArrangedSubview(tgEnabled)
+        stack.addArrangedSubview(labeled("Bot Token", tgTokenField))
+        stack.addArrangedSubview(labeled("Chat ID", tgChatField))
+        stack.addArrangedSubview(voltageAlertsBox)
+        stack.addArrangedSubview(labeled("Tensão Alta", highVoltField))
+        stack.addArrangedSubview(labeled("Tensão Baixa", lowVoltField))
+        stack.addArrangedSubview(labeled("Freq. Baixa", lowFreqField))
+        stack.addArrangedSubview(labeled("Freq. Alta", highFreqField))
         stack.translatesAutoresizingMaskIntoConstraints = false
     stack.setFrameSize(NSSize(width: 440, height: 360))
 
@@ -504,6 +706,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Settings.shared.telegramEnabled = (tgEnabled.state == .on)
             Settings.shared.telegramBotToken = tgTokenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             Settings.shared.telegramChatId = tgChatField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            // UPS/Bateria persistência
+            let upsW = Double(upsWattsField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.upsNominalWatts
+            let bV = Double(battVoltField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.batteryNominalVoltage
+            let bAh = Double(battAhField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.batteryNominalAh
+            let prevReplace = Settings.shared.batteryReplacedEpoch
+            var newReplace = prevReplace
+            let repStr = replaceDateField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !repStr.isEmpty, let dt = DateFormatter.cached.date(from: repStr) { newReplace = dt.timeIntervalSince1970 }
+            // Se data de troca mudou para mais recente, resetar contadores/estimativas
+            if newReplace > 0 && newReplace != prevReplace {
+                Settings.shared.cycleCount = 0
+                Settings.shared.estimatedCapacityAh = 0
+                Settings.shared.estimatedCapacitySamples = 0
+            }
+            Settings.shared.upsNominalWatts = max(50, upsW)
+            Settings.shared.batteryNominalVoltage = max(6, bV)
+            Settings.shared.batteryNominalAh = max(1, bAh)
+            Settings.shared.batteryReplacedEpoch = newReplace
             // Parse thresholds
             let vh = Double(highVoltField.stringValue) ?? Settings.shared.voltageHigh
             let vl = Double(lowVoltField.stringValue) ?? Settings.shared.voltageLow
@@ -523,6 +743,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     @objc func runSelfTestPlaceholder() { simpleAlert(title: "Autoteste", message: "Função será integrada (NIS ou apctest)") }
     @objc func quit() { NSApp.terminate(nil) }
+
+    // Filtra eventos que representam autotestes / resultados
+    func extractSelfTestEvents(from all: [String]) -> [String] {
+        // Procurar padrões comuns: SELFTEST, SELF-TEST, SELF TEST, AUTO TEST, TEST PASSED/FAILED
+        let patterns = ["SELFTEST", "SELF-TEST", "SELF TEST", "AUTO TEST", "TEST PASSED", "TEST FAILED", "SELFTEST PASSED", "SELFTEST FAILED"]
+        return all.filter { line in
+            let upper = line.uppercased()
+            for p in patterns { if upper.contains(p) { return true } }
+            return false
+        }
+    }
+
+    @objc func showSelfTests() {
+        if selfTestsWindow == nil { selfTestsWindow = SelfTestsWindowController() }
+        guard let win = selfTestsWindow else { return }
+        win.showWindow(nil)
+        win.window?.makeKeyAndOrderFront(nil)
+        win.update(with: extractSelfTestEvents(from: eventsCache))
+    }
 
     func currentSummary() -> String {
         let (_, dict) = client.fetchStatus()
@@ -769,6 +1008,14 @@ final class Settings {
     private let kVoltageAlerts = "voltageAlerts"
     private let kOnBattStart = "onBattStartEpoch"
     private let kLastOnBatt = "lastOnBattSeconds"
+    private let kDailyLogHour = "dailyLogHour"
+    private let kUpsNominalWatts = "upsNominalWatts"
+    private let kBattNominalV = "batteryNominalVoltage"
+    private let kBattNominalAh = "batteryNominalAh"
+    private let kBattReplacedEpoch = "batteryReplacedEpoch"
+    private let kEstCapacityAh = "estimatedCapacityAh"
+    private let kEstCapacitySamples = "estimatedCapacitySamples"
+    var dailyLogHour: Int = 8
     var host: String = "127.0.0.1"
     var port: Int = 3551
     var refreshSeconds: Int = 10
@@ -784,6 +1031,14 @@ final class Settings {
     // Persisted on-battery timing
     var onBattStartEpoch: TimeInterval = 0
     var lastOnBattSeconds: TimeInterval = 0
+    // UPS/battery parameters
+    var upsNominalWatts: Double = 600.0
+    var batteryNominalVoltage: Double = 24.0
+    var batteryNominalAh: Double = 7.0
+    var batteryReplacedEpoch: TimeInterval = 0
+    // Estimated capacity tracking
+    var estimatedCapacityAh: Double = 0
+    var estimatedCapacitySamples: Int = 0
 
     func load() {
         let d = UserDefaults.standard
@@ -800,6 +1055,14 @@ final class Settings {
         voltageAlertsEnabled = d.object(forKey: kVoltageAlerts) as? Bool ?? voltageAlertsEnabled
         let start = d.double(forKey: kOnBattStart); if start != 0 { onBattStartEpoch = start }
         let last = d.double(forKey: kLastOnBatt); if last != 0 { lastOnBattSeconds = last }
+    let dailyHour = d.integer(forKey: kDailyLogHour); if dailyHour != 0 { dailyLogHour = dailyHour }
+    let cycles = d.integer(forKey: kCycleCount); if cycles != 0 { cycleCount = cycles }
+    let upsW = d.double(forKey: kUpsNominalWatts); if upsW != 0 { upsNominalWatts = upsW }
+    let bV = d.double(forKey: kBattNominalV); if bV != 0 { batteryNominalVoltage = bV }
+    let bAh = d.double(forKey: kBattNominalAh); if bAh != 0 { batteryNominalAh = bAh }
+    let rep = d.double(forKey: kBattReplacedEpoch); if rep != 0 { batteryReplacedEpoch = rep }
+    let estAh = d.double(forKey: kEstCapacityAh); if estAh != 0 { estimatedCapacityAh = estAh }
+    let estN = d.integer(forKey: kEstCapacitySamples); if estN != 0 { estimatedCapacitySamples = estN }
     }
     func save() {
         let d = UserDefaults.standard
@@ -814,8 +1077,16 @@ final class Settings {
         d.set(frequencyLow, forKey: kFreqLow)
         d.set(frequencyHigh, forKey: kFreqHigh)
         d.set(voltageAlertsEnabled, forKey: kVoltageAlerts)
-        d.set(onBattStartEpoch, forKey: kOnBattStart)
-        d.set(lastOnBattSeconds, forKey: kLastOnBatt)
+    d.set(onBattStartEpoch, forKey: kOnBattStart)
+    d.set(lastOnBattSeconds, forKey: kLastOnBatt)
+    d.set(dailyLogHour, forKey: kDailyLogHour)
+    d.set(cycleCount, forKey: kCycleCount)
+    d.set(upsNominalWatts, forKey: kUpsNominalWatts)
+    d.set(batteryNominalVoltage, forKey: kBattNominalV)
+    d.set(batteryNominalAh, forKey: kBattNominalAh)
+    d.set(batteryReplacedEpoch, forKey: kBattReplacedEpoch)
+    d.set(estimatedCapacityAh, forKey: kEstCapacityAh)
+    d.set(estimatedCapacitySamples, forKey: kEstCapacitySamples)
     }
 }
 
@@ -861,7 +1132,7 @@ struct StatusView: View {
                 .background(cardBackground)
                 .cornerRadius(8)
                 
-                // Battery & Load
+                // Battery, Load, Cycles & Capacity
                 HStack(spacing: 16) {
                     MetricCard(
                         title: "Bateria",
@@ -873,6 +1144,24 @@ struct StatusView: View {
                         title: "Carga",
                         value: statusData["LOADPCT"] ?? "--",
                         icon: "gauge",
+                        colorScheme: colorScheme
+                    )
+                    MetricCard(
+                        title: "Ciclos",
+                        value: String(Settings.shared.cycleCount),
+                        icon: "arrow.2.circlepath",
+                        colorScheme: colorScheme
+                    )
+                    MetricCard(
+                        title: "Capac. Est.",
+                        value: Settings.shared.estimatedCapacityAh > 0 ? String(format: "%.1f Ah", Settings.shared.estimatedCapacityAh) : "--",
+                        icon: "bolt.circle",
+                        colorScheme: colorScheme
+                    )
+                    MetricCard(
+                        title: "Ciclos",
+                        value: String(Settings.shared.cycleCount),
+                        icon: "arrow.2.circlepath",
                         colorScheme: colorScheme
                     )
                 }
@@ -1075,6 +1364,55 @@ final class EventsWindowController: NSWindowController, NSWindowDelegate {
     let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     textView.backgroundColor = isDark ? NSColor.windowBackgroundColor.blended(withFraction: 0.15, of: .black)! : NSColor.textBackgroundColor
     textView.textColor = isDark ? .white : .textColor
+    }
+}
+
+// MARK: - Self Tests Window
+final class SelfTestsWindowController: NSWindowController, NSWindowDelegate {
+    private let textView = NSTextView(frame: .zero)
+    private var kvoAppearanceObservation: NSKeyValueObservation?
+
+    init() {
+        let rect = NSRect(x: 0, y: 0, width: 520, height: 360)
+        let window = NSWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.title = "Autotestes"
+        super.init(window: window)
+        window.delegate = self
+
+        let scroll = NSScrollView(frame: window.contentView?.bounds ?? rect)
+        scroll.autoresizingMask = [.width, .height]
+        scroll.hasVerticalScroller = true
+        textView.isEditable = false
+        if #available(macOS 13.0, *) { textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular) } else { textView.font = .systemFont(ofSize: 12) }
+        textView.textContainerInset = NSSize(width: 6, height: 6)
+        updateColors()
+        scroll.documentView = textView
+        window.contentView?.addSubview(scroll)
+        if #available(macOS 10.14, *) {
+            kvoAppearanceObservation = window.observe(\.
+effectiveAppearance, options: [.new]) { [weak self] _, _ in
+                self?.updateColors()
+            }
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    deinit { kvoAppearanceObservation = nil }
+
+    func update(with lines: [String]) {
+        updateColors()
+        if lines.isEmpty {
+            textView.string = "(Nenhum autoteste encontrado nos eventos.)"
+        } else {
+            textView.string = lines.joined(separator: "\n")
+        }
+        textView.scrollToEndOfDocument(nil)
+    }
+
+    private func updateColors() {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        textView.backgroundColor = isDark ? NSColor.windowBackgroundColor.blended(withFraction: 0.15, of: .black)! : NSColor.textBackgroundColor
+        textView.textColor = isDark ? .white : .textColor
     }
 }
 
