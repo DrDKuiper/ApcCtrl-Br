@@ -462,14 +462,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             }
                             let loadPct = (self.onBattStartLoadPct ?? dict["LOADPCT"].flatMap { $0.split(separator: " ").first }.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) } ) ?? 0
                             let battVolt = dict["NOMBATTV"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") } ?? self.onBattStartBattV ?? Settings.shared.batteryNominalVoltage
-                            let upsWatts = dict["NOMPOWER"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") } ?? Settings.shared.upsNominalWatts
+                            // Tentar VA (NOMAPNT) -> converter para Watts usando PF assumido se NOMPOWER não disponível
+                            let nomWatts = dict["NOMPOWER"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") }
+                            let nomVa = dict["NOMAPNT"].flatMap { Double($0.split(separator: " ").first?.replacingOccurrences(of: ",", with: ".") ?? "") }
+                            let upsWatts = nomWatts ?? (nomVa.map { $0 * Settings.shared.assumedPowerFactor }) ?? Settings.shared.upsNominalWatts
                             let eff = 0.85
-                            let pf = 1.0 // NOMPOWER já é em Watts, então PF=1
-                            let pout = max(10.0, upsWatts * (loadPct/100.0) * pf)
+                            let pout = max(10.0, upsWatts * (loadPct/100.0))
                             let iLoad = pout / max(10.0, battVolt * eff)
                             if let end = endPct, startPct > end {
                                 let deltaSOC = max(0.05, (startPct - end) / 100.0)
                                 let hours = max(0.01, dur / 3600.0)
+                                // Duas baterias em série: tensão dobra, Ah permanece (pack equivalente mantém Ah). Usamos battVolt já refletindo tensão total.
                                 let estAh = (iLoad * hours) / deltaSOC
                                 // EMA smoothing
                                 let prev = Settings.shared.estimatedCapacityAh
@@ -674,6 +677,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         battVoltField.placeholderString = "Bateria nominal (V)"
         let battAhField = NSTextField(string: String(Settings.shared.batteryNominalAh))
         battAhField.placeholderString = "Bateria nominal (Ah)"
+    let pfField = NSTextField(string: String(format: "%.2f", Settings.shared.assumedPowerFactor))
+    pfField.placeholderString = "Fator de potência assumido (ex: 0.65)"
         let replaceDateString: String = {
             let ts = Settings.shared.batteryReplacedEpoch
             if ts > 0 { return DateFormatter.cached.string(from: Date(timeIntervalSince1970: ts)) }
@@ -709,7 +714,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stack.addArrangedSubview(labeled("Potência nominal (W)", upsWattsField))
         stack.addArrangedSubview(labeled("Bateria nominal (V)", battVoltField))
         stack.addArrangedSubview(labeled("Bateria nominal (Ah)", battAhField))
-        stack.addArrangedSubview(labeled("Troca da bateria (yyyy-MM-dd)", replaceDateField))
+    stack.addArrangedSubview(labeled("Troca da bateria (yyyy-MM-dd)", replaceDateField))
+    stack.addArrangedSubview(labeled("Fator de Potência (assumido)", pfField))
     let sep = NSBox()
     sep.boxType = .separator
     stack.addArrangedSubview(sep)
@@ -744,6 +750,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let upsW = Double(upsWattsField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.upsNominalWatts
             let bV = Double(battVoltField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.batteryNominalVoltage
             let bAh = Double(battAhField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.batteryNominalAh
+            let pfVal = Double(pfField.stringValue.replacingOccurrences(of: ",", with: ".")) ?? Settings.shared.assumedPowerFactor
             let prevReplace = Settings.shared.batteryReplacedEpoch
             var newReplace = prevReplace
             let repStr = replaceDateField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -758,6 +765,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Settings.shared.batteryNominalVoltage = max(6, bV)
             Settings.shared.batteryNominalAh = max(1, bAh)
             Settings.shared.batteryReplacedEpoch = newReplace
+            Settings.shared.assumedPowerFactor = min(1.0, max(0.4, pfVal))
             // Parse thresholds
             let vh = Double(highVoltField.stringValue) ?? Settings.shared.voltageHigh
             let vl = Double(lowVoltField.stringValue) ?? Settings.shared.voltageLow
@@ -1050,6 +1058,7 @@ final class Settings {
     private let kBattReplacedEpoch = "batteryReplacedEpoch"
     private let kEstCapacityAh = "estimatedCapacityAh"
     private let kEstCapacitySamples = "estimatedCapacitySamples"
+    private let kAssumedPF = "assumedPowerFactor"
     var dailyLogHour: Int = 8
     var host: String = "127.0.0.1"
     var port: Int = 3551
@@ -1057,11 +1066,11 @@ final class Settings {
     var telegramEnabled: Bool = false
     var telegramBotToken: String = ""
     var telegramChatId: String = ""
-    // Monitoring thresholds (defaults typical for 220V / 60Hz region, adjust as needed)
-    var voltageHigh: Double = 255.0
-    var voltageLow: Double = 180.0
-    var frequencyLow: Double = 55.0
-    var frequencyHigh: Double = 65.0
+    // Monitoring thresholds (defaults for 127V / 60Hz network)
+    var voltageHigh: Double = 140.0  // 127V network: upper limit
+    var voltageLow: Double = 105.0   // 127V network: lower limit
+    var frequencyLow: Double = 58.0  // 60Hz network: lower limit
+    var frequencyHigh: Double = 62.0 // 60Hz network: upper limit
     var voltageAlertsEnabled: Bool = true
     // Persisted on-battery timing
     var onBattStartEpoch: TimeInterval = 0
@@ -1076,6 +1085,8 @@ final class Settings {
     var estimatedCapacitySamples: Int = 0
     // Battery cycles count
     var cycleCount: Int = 0
+    // Assumed power factor used when only VA is available
+    var assumedPowerFactor: Double = 0.65
 
     func load() {
         let d = UserDefaults.standard
@@ -1100,6 +1111,7 @@ final class Settings {
     let rep = d.double(forKey: kBattReplacedEpoch); if rep != 0 { batteryReplacedEpoch = rep }
     let estAh = d.double(forKey: kEstCapacityAh); if estAh != 0 { estimatedCapacityAh = estAh }
     let estN = d.integer(forKey: kEstCapacitySamples); if estN != 0 { estimatedCapacitySamples = estN }
+    let pf = d.double(forKey: kAssumedPF); if pf != 0 { assumedPowerFactor = pf }
     }
     func save() {
         let d = UserDefaults.standard
@@ -1124,6 +1136,7 @@ final class Settings {
     d.set(batteryReplacedEpoch, forKey: kBattReplacedEpoch)
     d.set(estimatedCapacityAh, forKey: kEstCapacityAh)
     d.set(estimatedCapacitySamples, forKey: kEstCapacitySamples)
+    d.set(assumedPowerFactor, forKey: kAssumedPF)
     }
 }
 
@@ -1249,6 +1262,8 @@ struct StatusView: View {
             .padding()
         }
         .frame(minWidth: 400, minHeight: 480)
+        .background(Color(red: 0.03, green: 0.05, blue: 0.10))
+        .preferredColorScheme(.dark)
         .onAppear {
             refresh()
             // Start auto-refresh timer when view appears
@@ -1320,22 +1335,66 @@ extension DateFormatter {
 }
 
 // MARK: - Metrics models and store
-struct MetricSample: Identifiable {
+struct MetricSample: Identifiable, Codable {
     let id = UUID()
     let time: Date
     let charge: Double?
     let load: Double?
     let lineV: Double?
     let freq: Double?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, time, charge, load, lineV, freq
+    }
 }
 
 final class MetricsStore: ObservableObject {
     @Published var samples: [MetricSample] = []
     var maxSamples: Int = 1000
+    private var saveTimer: Timer?
+    private let saveURL: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appDir = dir.appendingPathComponent("ApcCtrl", isDirectory: true)
+        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
+        return appDir.appendingPathComponent("metrics.json")
+    }()
+    
+    init() {
+        load()
+        // Auto-save every 5 minutes
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.save()
+        }
+        RunLoop.main.add(saveTimer!, forMode: .common)
+    }
+    
+    deinit {
+        saveTimer?.invalidate()
+        save()
+    }
+    
     func append(_ s: MetricSample) {
         samples.append(s)
         if samples.count > maxSamples {
             samples.removeFirst(samples.count - maxSamples)
+        }
+    }
+    
+    private func save() {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(samples) else { return }
+        try? data.write(to: saveURL)
+        print("[MetricsStore] Saved \(samples.count) samples to \(saveURL.path)")
+    }
+    
+    private func load() {
+        guard let data = try? Data(contentsOf: saveURL) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let loaded = try? decoder.decode([MetricSample].self, from: data) {
+            samples = loaded
+            print("[MetricsStore] Loaded \(samples.count) samples from \(saveURL.path)")
         }
     }
 }
@@ -1356,44 +1415,140 @@ struct GraphsView: View {
             }
         }
     }
-    enum Range: String, CaseIterable, Identifiable { case h1, h6, h24
+    enum Range: String, CaseIterable, Identifiable { case h1, h6, h24, custom
         var id: String { rawValue }
-        var title: String { switch self { case .h1: return "1h"; case .h6: return "6h"; case .h24: return "24h" } }
-        var hours: Double { switch self { case .h1: return 1; case .h6: return 6; case .h24: return 24 } }
+        var title: String { switch self { case .h1: return "1h"; case .h6: return "6h"; case .h24: return "24h"; case .custom: return "Custom" } }
+        var hours: Double { switch self { case .h1: return 1; case .h6: return 6; case .h24: return 24; case .custom: return 6 } }
     }
     @State private var metric: Metric = .charge
     @State private var range: Range = .h6
+    @State private var startDate: Date = Calendar.current.date(byAdding: .hour, value: -6, to: Date()) ?? Date().addingTimeInterval(-6*3600)
+    @State private var endDate: Date = Date()
+    @State private var showTable: Bool = false
+    @State private var hoverTime: Date? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 12) {
                 Picker("Métrica", selection: $metric) {
                     ForEach(Metric.allCases) { m in Text(m.title).tag(m) }
                 }.pickerStyle(.segmented)
                 Picker("Janela", selection: $range) {
                     ForEach(Range.allCases) { r in Text(r.title).tag(r) }
-                }.pickerStyle(.segmented).frame(width: 180)
+                }.pickerStyle(.segmented).frame(width: 240)
                 Spacer()
+            }
+            if range == .custom {
+                HStack(spacing: 8) {
+                    DatePicker("De:", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("Até:", selection: $endDate, displayedComponents: [.date, .hourAndMinute])
+                    Spacer()
+                }
             }
             Chart(filteredSamples) { s in
                 switch metric {
                 case .charge:
-                    if let y = s.charge { LineMark(x: .value("Hora", s.time), y: .value("%", y)) }
+                    if let y = s.charge { LineMark(x: .value("Hora", s.time), y: .value("%", y)).foregroundStyle(.cyan) }
                 case .load:
-                    if let y = s.load { LineMark(x: .value("Hora", s.time), y: .value("%", y)) }
+                    if let y = s.load { LineMark(x: .value("Hora", s.time), y: .value("%", y)).foregroundStyle(.green) }
                 case .lineV:
-                    if let y = s.lineV { LineMark(x: .value("Hora", s.time), y: .value("V", y)) }
+                    if let y = s.lineV { 
+                        LineMark(x: .value("Hora", s.time), y: .value("V", y)).foregroundStyle(.orange)
+                        RuleMark(y: .value("127V", 127.0))
+                            .foregroundStyle(.secondary.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4,4]))
+                            .annotation(position: .top, alignment: .leading) { 
+                                Text("127V").font(.caption).foregroundColor(.secondary)
+                            }
+                    }
                 case .freq:
-                    if let y = s.freq { LineMark(x: .value("Hora", s.time), y: .value("Hz", y)) }
+                    if let y = s.freq { 
+                        LineMark(x: .value("Hora", s.time), y: .value("Hz", y)).foregroundStyle(.purple)
+                        RuleMark(y: .value("60Hz", 60.0))
+                            .foregroundStyle(.secondary.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4,4]))
+                            .annotation(position: .top, alignment: .leading) { 
+                                Text("60Hz").font(.caption).foregroundColor(.secondary)
+                            }
+                    }
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).onContinuousHover { phase in
+                        switch phase {
+                        case .active(let p):
+                            let x = p.x - geo[proxy.plotAreaFrame].origin.x
+                            if let date: Date = proxy.value(atX: x) {
+                                hoverTime = date
+                            }
+                        case .ended:
+                            hoverTime = nil
+                        }
+                    }
                 }
             }
             .chartXAxis { AxisMarks(values: .automatic(desiredCount: 6)) }
             .frame(minHeight: 360)
+            .background(Color(red: 0.05, green: 0.08, blue: 0.15))
+            .cornerRadius(8)
+            HStack {
+                Toggle("Mostrar tabela", isOn: $showTable)
+                Spacer()
+                if let h = hoveredSample {
+                    Text(hoverText(for: h)).font(.caption).foregroundColor(.secondary)
+                }
+            }
+            if showTable {
+                Table(tableRows) {
+                    TableColumn("Hora") { Text($0.0).foregroundColor(.primary) }
+                    TableColumn("Valor") { Text($0.1).foregroundColor(.primary) }
+                }
+                .frame(minHeight: 160)
+                .background(Color(red: 0.08, green: 0.11, blue: 0.18))
+                .cornerRadius(6)
+            }
         }
         .padding(12)
+        .background(Color(red: 0.03, green: 0.05, blue: 0.10))
+        .preferredColorScheme(.dark)
+    }
+
+    private var timeFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }
+
+    private var hoveredSample: MetricSample? {
+        guard let t = hoverTime else { return nil }
+        return filteredSamples.min(by: { abs($0.time.timeIntervalSince(t)) < abs($1.time.timeIntervalSince(t)) })
+    }
+    private func hoverText(for s: MetricSample) -> String {
+        let ts = timeFormatter.string(from: s.time)
+        switch metric {
+        case .charge: return "\(ts)  \(String(format: "%.1f", s.charge ?? .nan)) %"
+        case .load:   return "\(ts)  \(String(format: "%.1f", s.load ?? .nan)) %"
+        case .lineV:  return "\(ts)  \(String(format: "%.1f", s.lineV ?? .nan)) V"
+        case .freq:   return "\(ts)  \(String(format: "%.1f", s.freq ?? .nan)) Hz"
+        }
+    }
+    private var tableRows: [(String,String)] {
+        filteredSamples.map { s in
+            let ts = timeFormatter.string(from: s.time)
+            switch metric {
+            case .charge: return (ts, String(format: "%.1f %%", s.charge ?? .nan))
+            case .load:   return (ts, String(format: "%.1f %%", s.load ?? .nan))
+            case .lineV:  return (ts, String(format: "%.1f V", s.lineV ?? .nan))
+            case .freq:   return (ts, String(format: "%.1f Hz", s.freq ?? .nan))
+            }
+        }
     }
 
     private var filteredSamples: [MetricSample] {
+        if range == .custom {
+            return store.samples.filter { $0.time >= startDate && $0.time <= endDate }
+        }
         let cutoff = Date().addingTimeInterval(-range.hours * 3600)
         return store.samples.filter { $0.time >= cutoff }
     }
