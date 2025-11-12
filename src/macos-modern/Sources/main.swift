@@ -284,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let first = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first else { return false }
             let dstr = String(first)
             if dstr.count < 10 { return false }
-            return (try? DateFormatter.cached.date(from: String(dstr.prefix(10))))?.timeIntervalSince1970 ?? 0 >= today.timeIntervalSince1970
+            return DateFormatter.cached.date(from: String(dstr.prefix(10)))?.timeIntervalSince1970 ?? 0 >= today.timeIntervalSince1970
         }
         let name = lastUpsName
         var log = "[Log diário do nobreak]"
@@ -1398,6 +1398,7 @@ struct GraphsView: View {
         return store.samples.filter { $0.time >= cutoff }
     }
 }
+#endif
 struct GraphsViewLegacy: View {
     @ObservedObject var store: MetricsStore
     var body: some View {
@@ -1407,8 +1408,7 @@ struct GraphsViewLegacy: View {
             ScrollView {
                 ForEach(store.samples) { s in
                     Text("\(s.time): Carga=\(s.load ?? .nan), Bateria=\(s.charge ?? .nan), V=\(s.lineV ?? .nan), Hz=\(s.freq ?? .nan)")
-                        .font(.system(size: 11))
-                        .monospaced()
+                        .font(.system(.caption, design: .monospaced))
                 }
             }
         }
