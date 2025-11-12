@@ -1348,6 +1348,12 @@ struct MetricSample: Identifiable, Codable {
     }
 }
 
+struct MetricTableRow: Identifiable {
+    let id = UUID()
+    let timestamp: String
+    let value: String
+}
+
 final class MetricsStore: ObservableObject {
     @Published var samples: [MetricSample] = []
     var maxSamples: Int = 1000
@@ -1501,8 +1507,8 @@ struct GraphsView: View {
             }
             if showTable {
                 Table(tableRows) {
-                    TableColumn("Hora") { Text($0.0).foregroundColor(.primary) }
-                    TableColumn("Valor") { Text($0.1).foregroundColor(.primary) }
+                    TableColumn("Hora") { row in Text(row.timestamp).foregroundColor(.primary) }
+                    TableColumn("Valor") { row in Text(row.value).foregroundColor(.primary) }
                 }
                 .frame(minHeight: 160)
                 .background(Color(red: 0.08, green: 0.11, blue: 0.18))
@@ -1533,15 +1539,17 @@ struct GraphsView: View {
         case .freq:   return "\(ts)  \(String(format: "%.1f", s.freq ?? .nan)) Hz"
         }
     }
-    private var tableRows: [(String,String)] {
+    private var tableRows: [MetricTableRow] {
         filteredSamples.map { s in
             let ts = timeFormatter.string(from: s.time)
+            let val: String
             switch metric {
-            case .charge: return (ts, String(format: "%.1f %%", s.charge ?? .nan))
-            case .load:   return (ts, String(format: "%.1f %%", s.load ?? .nan))
-            case .lineV:  return (ts, String(format: "%.1f V", s.lineV ?? .nan))
-            case .freq:   return (ts, String(format: "%.1f Hz", s.freq ?? .nan))
+            case .charge: val = String(format: "%.1f %%", s.charge ?? .nan)
+            case .load:   val = String(format: "%.1f %%", s.load ?? .nan)
+            case .lineV:  val = String(format: "%.1f V", s.lineV ?? .nan)
+            case .freq:   val = String(format: "%.1f Hz", s.freq ?? .nan)
             }
+            return MetricTableRow(timestamp: ts, value: val)
         }
     }
 
