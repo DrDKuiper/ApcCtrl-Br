@@ -182,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var selfTestsWindow: SelfTestsWindowController?
     var graphsWindow: GraphsWindowController?
     var statusWindow: NSWindow?
+    // Track last overall state to detect ONBATT transitions
+    var lastState: NisClient.UpsState = .commlost
     // Track alert states to avoid spamming repeated voltage/frequency notifications
     var lastVoltageAlerted: Bool = false
     var lastFrequencyAlerted: Bool = false
@@ -1396,7 +1398,6 @@ struct GraphsView: View {
         return store.samples.filter { $0.time >= cutoff }
     }
 }
-#else
 struct GraphsViewLegacy: View {
     @ObservedObject var store: MetricsStore
     var body: some View {
@@ -1414,7 +1415,6 @@ struct GraphsViewLegacy: View {
         .padding(12)
     }
 }
-#endif
 
 // MARK: - Graphs Window
 final class GraphsWindowController: NSWindowController, NSWindowDelegate {
