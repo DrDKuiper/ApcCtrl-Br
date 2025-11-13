@@ -7,14 +7,109 @@ import ServiceManagement
 import Charts
 #endif
 
-// Minimal NIS client facade; tries `apcaccess` as fallback
+// NIS client with socket protocol and fallback to apcaccess
 final class NisClient {
     enum UpsState { case online, charging, onbatt, commlost }
     let host: String
     let port: Int
     init(host: String, port: Int) { self.host = host; self.port = port }
-    func fetchStatus() -> (UpsState, [String:String]) { (.commlost, [:]) }
-    func fetchEvents() -> [String] { [] }
+    
+    func fetchStatus() -> (UpsState, [String:String]) {
+        var dict = nisQuery(cmd: "status")
+        if dict.isEmpty {
+            dict = apcaccessQuery()
+        }
+        let status = dict["STATUS"] ?? ""
+        let state: UpsState
+        if status.contains("COMMLOST") { state = .commlost }
+        else if status.contains("ONBATT") { state = .onbatt }
+        else if status.contains("CHARGING") { state = .charging }
+        else { state = .online }
+        return (state, dict)
+    }
+    
+    func fetchEvents() -> [String] {
+        let raw = nisQuery(cmd: "events")
+        guard let ev = raw["EVENTS"] else { return [] }
+        return ev.split(separator: "\n").map(String.init)
+    }
+    
+    private func nisQuery(cmd: String) -> [String:String] {
+        guard let sock = socket(AF_INET, SOCK_STREAM, 0), sock >= 0 else { return [:] }
+        defer { close(sock) }
+        var tv = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = UInt16(port).bigEndian
+        inet_pton(AF_INET, host, &addr.sin_addr)
+        
+        let connResult = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connResult == 0 else { return [:] }
+        
+        let cmdData = cmd.data(using: .ascii) ?? Data()
+        let len = UInt16(cmdData.count).bigEndian
+        var header = Data()
+        withUnsafeBytes(of: len) { header.append(contentsOf: $0) }
+        header.append(cmdData)
+        _ = header.withUnsafeBytes { send(sock, $0.baseAddress, header.count, 0) }
+        
+        var result = Data()
+        while true {
+            var hdr = Data(count: 2)
+            let hr = hdr.withUnsafeMutableBytes { recv(sock, $0.baseAddress, 2, 0) }
+            guard hr == 2 else { break }
+            let msgLen = Int(hdr[0]) << 8 | Int(hdr[1])
+            if msgLen == 0 { break }
+            var chunk = Data(count: msgLen)
+            let cr = chunk.withUnsafeMutableBytes { recv(sock, $0.baseAddress, msgLen, 0) }
+            guard cr == msgLen else { break }
+            result.append(chunk)
+        }
+        
+        let text = String(data: result, encoding: .ascii) ?? ""
+        var map = [String:String]()
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let val = parts[1].trimmingCharacters(in: .whitespaces)
+            map[key] = val
+        }
+        return map
+    }
+    
+    private func apcaccessQuery() -> [String:String] {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/sbin/apcaccess")
+        proc.arguments = ["status", "\(host):\(port)"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let text = String(data: data, encoding: .utf8) ?? ""
+            var map = [String:String]()
+            for line in text.split(separator: "\n") {
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let key = parts[0].trimmingCharacters(in: .whitespaces)
+                let val = parts[1].trimmingCharacters(in: .whitespaces)
+                map[key] = val
+            }
+            return map
+        } catch {
+            return [:]
+        }
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -1051,150 +1146,118 @@ final class Settings {
     }
 }
 
-// MARK: - Energy Flow Diagram
+// MARK: - Energy Flow Diagram (2 colunas: superior e inferior)
 struct EnergyFlowView: View {
     let statusData: [String: String]
-    // Usar Double para reduzir conversões entre CGFloat/Double durante animação e trigonometria
     @State private var animationPhase: Double = 0
     
     var body: some View {
         let status = statusData["STATUS"] ?? ""
         let isOnBatt = status.contains("ONBATT")
         let isCharging = status.contains("CHARGING")
+        let standby = Color.red.opacity(0.6)
+        let gridAlert = (statusData["GRID_ALERT"] == "1")
+        let battAlert = (statusData["BATT_ALERT"] == "1")
+        let upsAlert  = (statusData["UPS_ALERT"]  == "1")
+        let gridColor = gridAlert ? .red : (isOnBatt ? standby : Color.green)
+        let battColor = battAlert ? .red : (isOnBatt ? Color.orange : standby)
+        let upsColor: Color = upsAlert ? .red : (isCharging ? .yellow : (isOnBatt ? .orange : .green))
+        let outColor: Color = isOnBatt ? .orange : .green
         
         VStack(spacing: 8) {
             Text("Fluxo de Energia")
                 .font(.headline)
                 .foregroundColor(.secondary)
             
-            ZStack {
-                if isOnBatt {
-                    // Bateria → UPS → Dispositivos
-                    HStack(spacing: 20) {
-                        // Bateria
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: "battery.75")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.orange)
-                            }
-                            Text("Bateria")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            if let charge = statusData["BCHARGE"] {
-                                Text(charge)
-                                    .font(.caption2)
-                                    .foregroundColor(.orange)
-                            }
-                        }
-                        
-                        // Seta animada
-                        flowArrow(color: .orange)
-                        
-                        // UPS
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: "bolt.shield")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.orange)
-                            }
-                            Text("UPS")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        // Seta animada
-                        flowArrow(color: .orange)
-                        
-                        // Dispositivos
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: "laptopcomputer")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.orange)
-                            }
-                            Text("Dispositivos")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            if let load = statusData["LOADPCT"] {
-                                Text(load)
-                                    .font(.caption2)
-                                    .foregroundColor(.orange)
-                            }
-                        }
+            // Linha superior: Grid <-> Bateria
+            HStack(alignment: .center, spacing: 24) {
+                // Grid (Rede)
+                VStack(spacing: 4) {
+                    if #available(macOS 11.0, *) {
+                        Image(systemName: "powerplug")
+                            .font(.system(size: 36))
+                            .foregroundColor(gridColor)
                     }
-                } else {
-                    // Rede → Casa → Dispositivos (e UPS carregando se CHARGING)
-                    HStack(spacing: 20) {
-                        // Rede elétrica
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: "powerplug")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.green)
-                            }
-                            Text("Rede")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            if let voltage = statusData["LINEV"] {
-                                Text(voltage)
-                                    .font(.caption2)
-                                    .foregroundColor(.green)
-                            }
-                        }
-                        
-                        // Seta animada
-                        flowArrow(color: .green)
-                        
-                        // UPS
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: isCharging ? "bolt.fill" : "bolt.shield.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(isCharging ? .yellow : .green)
-                            }
-                            Text(isCharging ? "UPS (Carregando)" : "UPS")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            if isCharging, let charge = statusData["BCHARGE"] {
-                                Text(charge)
-                                    .font(.caption2)
-                                    .foregroundColor(.yellow)
-                            }
-                        }
-                        
-                        // Seta animada
-                        flowArrow(color: .green)
-                        
-                        // Dispositivos
-                        VStack {
-                            if #available(macOS 11.0, *) {
-                                Image(systemName: "house.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.green)
-                            }
-                            Text("Dispositivos")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            if let load = statusData["LOADPCT"] {
-                                Text(load)
-                                    .font(.caption2)
-                                    .foregroundColor(.green)
-                            }
-                        }
+                    Text("Rede")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if let v = statusData["LINEV"] {
+                        Text(v)
+                            .font(.caption2)
+                            .foregroundColor(gridColor)
                     }
                 }
-            }
-            .frame(height: 100)
-            .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    animationPhase = 1.0
+                .frame(maxWidth: .infinity)
+                
+                // Seta bidirecional entre grid e bateria
+                flowArrow(color: isOnBatt ? battColor : gridColor)
+                
+                // Bateria
+                VStack(spacing: 4) {
+                    if #available(macOS 11.0, *) {
+                        Image(systemName: "battery.75")
+                            .font(.system(size: 36))
+                            .foregroundColor(battColor)
+                    }
+                    Text("Bateria")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if let c = statusData["BCHARGE"] {
+                        Text(c)
+                            .font(.caption2)
+                            .foregroundColor(battColor)
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
+            .padding(.horizontal, 12)
+            
+            // Linha inferior: UPS <-> Dispositivos
+            HStack(alignment: .center, spacing: 24) {
+                // UPS
+                VStack(spacing: 4) {
+                    if #available(macOS 11.0, *) {
+                        Image(systemName: isCharging ? "bolt.fill" : "bolt.shield.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(upsColor)
+                    }
+                    Text(isCharging ? "UPS (Carregando)" : "UPS")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Seta UPS → Dispositivos
+                flowArrow(color: outColor)
+                
+                // Dispositivos
+                VStack(spacing: 4) {
+                    if #available(macOS 11.0, *) {
+                        Image(systemName: "laptopcomputer")
+                            .font(.system(size: 36))
+                            .foregroundColor(outColor)
+                    }
+                    Text("Dispositivos")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if let l = statusData["LOADPCT"] {
+                        Text(l)
+                            .font(.caption2)
+                            .foregroundColor(outColor)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 12)
         }
         .padding()
         .background(Color(red: 0.05, green: 0.08, blue: 0.15))
         .cornerRadius(8)
+        .onAppear {
+            withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                animationPhase = 1.0
+            }
+        }
     }
     
     // Opacidade separada em função simples para evitar expressão pesada no ViewBuilder
