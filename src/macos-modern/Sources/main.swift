@@ -1,14 +1,9 @@
-// (moved into Settings) kCycleCount, cycleCount
-// apcctrl macOS modern agent prototype
-// GPLv2 - see COPYING in project root
-// Minimal menubar app in Swift using AppKit
-
-import Cocoa
         VStack(spacing: 8) {
             Text("Fluxo de Energia")
                 .font(.headline)
                 .foregroundColor(.secondary)
 
+            // Cores dinâmicas com suporte a alertas
             let standby = Color.red.opacity(0.6)
             let gridAlert = (statusData["GRID_ALERT"] == "1")
             let battAlert = (statusData["BATT_ALERT"] == "1")
@@ -78,80 +73,6 @@ import Cocoa
             }
             .frame(maxWidth: .infinity)
             .frame(height: 100)
-            if parts.count == 2 {
-                let key = parts[0].trimmingCharacters(in: .whitespaces)
-                let value = parts[1].trimmingCharacters(in: .whitespaces)
-                d[key] = value
-            }
-        }
-        return d
-    }
-
-    // Try executing apcaccess to fetch local status when NIS is unavailable
-    private func runApcaccess() -> String? {
-        let candidates = [
-            "/opt/homebrew/sbin/apcaccess", "/opt/homebrew/bin/apcaccess",
-            "/usr/local/sbin/apcaccess", "/usr/local/bin/apcaccess",
-            "/usr/sbin/apcaccess", "/usr/bin/apcaccess", "apcaccess"
-        ]
-        for path in candidates {
-            let proc = Process()
-            if path == "apcaccess" {
-                proc.launchPath = "/usr/bin/env"
-                proc.arguments = ["apcaccess"]
-            } else {
-                if !FileManager.default.isExecutableFile(atPath: path) { continue }
-                proc.launchPath = path
-            }
-            let pipe = Pipe()
-            proc.standardOutput = pipe
-            proc.standardError = Pipe()
-            do {
-                try proc.run()
-            } catch {
-                continue
-            }
-            let data = try? pipe.fileHandleForReading.readToEnd()
-            proc.waitUntilExit()
-            if let data = data, let text = String(data: data, encoding: .ascii), !text.isEmpty {
-                return text
-            }
-        }
-        return nil
-    }
-}
-
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    var client: NisClient!
-    var timer: Timer?
-    var lastEventLine: String = ""
-    var lastStatusText: String = ""
-    var eventsCache: [String] = []
-    var eventsWindow: EventsWindowController?
-    var selfTestsWindow: SelfTestsWindowController?
-    var graphsWindow: GraphsWindowController?
-    var statusWindow: NSWindow?
-    // Track last overall state to detect ONBATT transitions
-    var lastState: NisClient.UpsState = .commlost
-    // Track alert states to avoid spamming repeated voltage/frequency notifications
-    var lastVoltageAlerted: Bool = false
-    var lastFrequencyAlerted: Bool = false
-    // Track on-battery timing
-    var onBatteryStart: Date? = nil
-    var lastOnBatteryDuration: TimeInterval = 0
-    // Capacity estimation state (captured at start of ONBATT)
-    var onBattStartBcharge: Double? = nil
-    var onBattStartLoadPct: Double? = nil
-    var onBattStartBattV: Double? = nil
-    // Agendamento de log diário
-    var dailyLogTimer: Timer?
-    var lastDailyLogDate: Date? = nil
-    var dailyLogHour: Int = 8 // Agora configurável pelo usuário
-    // Cache last known UPS name to avoid blocking lookups in notifications
-    var lastUpsName: String = "UPS"
-    // Metrics store for charts
-    let metrics = MetricsStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
