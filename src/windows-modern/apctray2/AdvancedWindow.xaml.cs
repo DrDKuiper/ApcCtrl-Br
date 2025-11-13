@@ -23,7 +23,14 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private readonly ObservableCollection<double> _voltageData = new();
     private readonly ObservableCollection<double> _wattsData = new();
     
+    // Todas as amostras de métricas (range completo)
+    private readonly ObservableCollection<double> _allBatteryData = new();
+    private readonly ObservableCollection<double> _allLoadData = new();
+    private readonly ObservableCollection<double> _allVoltageData = new();
+    private readonly ObservableCollection<double> _allWattsData = new();
+    
     private const int MaxDataPoints = 60; // 1 minuto a 1seg/ponto
+    private TimeSpan _currentRange = TimeSpan.FromHours(1); // Default 1 hora
 
     // Monitoramento de tensão e bateria
     private const double MinVoltage = 190.0;
@@ -160,7 +167,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             }
         };
         
-        // Gráfico de tensão
+        // Gráfico de tensão com linha de referência 127V
         VoltageChart.Series = new ISeries[]
         {
             new LineSeries<double>
@@ -170,6 +177,17 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 Stroke = new SolidColorPaint(SKColors.DeepSkyBlue) { StrokeThickness = 3 },
                 GeometrySize = 0,
                 LineSmoothness = 0.5
+            }
+        };
+        
+        // Adicionar linha de referência 127V
+        VoltageChart.Sections = new RectangularSection[]
+        {
+            new RectangularSection
+            {
+                Yi = 127.0,
+                Yj = 127.0,
+                Stroke = new SolidColorPaint(SKColors.Gray) { StrokeThickness = 1 }
             }
         };
 
@@ -229,7 +247,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 if (parts.Length > 0 && double.TryParse(parts[0], out var bpd))
                 {
                     BatteryPercent = (int)bpd;
-                    AddDataPoint(_batteryData, bpd);
+                    _allBatteryData.Add(bpd);
                 }
             }
             
@@ -239,7 +257,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 if (parts.Length > 0 && double.TryParse(parts[0], out var lpd))
                 {
                     LoadPercent = (int)lpd;
-                    AddDataPoint(_loadData, lpd);
+                    _allLoadData.Add(lpd);
                 }
             }
             
@@ -253,7 +271,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 {
                     var watts = nomW * loadP / 100.0;
                     LoadWatts = $"{(int)watts} W";
-                    AddDataPoint(_wattsData, watts);
+                    _allWattsData.Add(watts);
                 }
             }
             
@@ -263,7 +281,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 if (parts.Length > 0 && double.TryParse(parts[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
                 {
                     InputVoltage = $"{v:F1} V";
-                    AddDataPoint(_voltageData, v);
+                    _allVoltageData.Add(v);
                     
                     // Detectar oscilação de tensão
                     if (v < MinVoltage)
@@ -286,6 +304,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     InputVoltage = linev;
                 }
             }
+            
+            // Aplicar filtro de range após todos os dados
+            ApplyRangeFilter();
             
             if (map.TryGetValue("OUTPUTV", out var outputv))
             {
@@ -386,6 +407,53 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         series.Add(value);
         if (series.Count > MaxDataPoints)
             series.RemoveAt(0);
+    }
+    
+    private void ApplyRangeFilter()
+    {
+        var startIndex = Math.Max(0, _allBatteryData.Count - (int)(_currentRange.TotalSeconds / Settings.Current.RefreshSeconds));
+        
+        _batteryData.Clear();
+        _loadData.Clear();
+        _voltageData.Clear();
+        _wattsData.Clear();
+        
+        foreach (var val in _allBatteryData.Skip(startIndex)) _batteryData.Add(val);
+        foreach (var val in _allLoadData.Skip(startIndex)) _loadData.Add(val);
+        foreach (var val in _allVoltageData.Skip(startIndex)) _voltageData.Add(val);
+        foreach (var val in _allWattsData.Skip(startIndex)) _wattsData.Add(val);
+    }
+    
+    private void RangeComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (RangeComboBox == null) return;
+        
+        switch (RangeComboBox.SelectedIndex)
+        {
+            case 0: _currentRange = TimeSpan.FromHours(1); break;
+            case 1: _currentRange = TimeSpan.FromHours(6); break;
+            case 2: _currentRange = TimeSpan.FromHours(24); break;
+            case 3: // Personalizado
+                StartDatePicker.Visibility = Visibility.Visible;
+                DateSeparator.Visibility = Visibility.Visible;
+                EndDatePicker.Visibility = Visibility.Visible;
+                return;
+        }
+        
+        StartDatePicker.Visibility = Visibility.Collapsed;
+        DateSeparator.Visibility = Visibility.Collapsed;
+        EndDatePicker.Visibility = Visibility.Collapsed;
+        
+        ApplyRangeFilter();
+    }
+    
+    private void CustomRange_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (StartDatePicker.SelectedDate.HasValue && EndDatePicker.SelectedDate.HasValue)
+        {
+            _currentRange = EndDatePicker.SelectedDate.Value - StartDatePicker.SelectedDate.Value;
+            ApplyRangeFilter();
+        }
     }
 
     private void UpdateModeIndicator()

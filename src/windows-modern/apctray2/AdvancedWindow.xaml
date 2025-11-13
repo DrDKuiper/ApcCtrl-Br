@@ -84,6 +84,7 @@
       <TabItem Header="📊 Gráficos em Tempo Real">
         <Grid Background="#1E1E1E" Margin="8">
           <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
@@ -92,8 +93,27 @@
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
+          <!-- Controles de Range Temporal -->
+          <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="8" HorizontalAlignment="Right">
+            <TextBlock Text="📅 Range:" VerticalAlignment="Center" Foreground="#E0E0E0" Margin="0,0,8,0"/>
+            <ComboBox x:Name="RangeComboBox" Width="120" SelectedIndex="0" SelectionChanged="RangeComboBox_SelectionChanged"
+                      Background="#2D2D30" Foreground="#E0E0E0" BorderBrush="#3E3E42">
+              <ComboBoxItem Content="1 hora"/>
+              <ComboBoxItem Content="6 horas"/>
+              <ComboBoxItem Content="24 horas"/>
+              <ComboBoxItem Content="Personalizado"/>
+            </ComboBox>
+            <DatePicker x:Name="StartDatePicker" Margin="8,0,4,0" Visibility="Collapsed" 
+                        SelectedDateChanged="CustomRange_Changed"
+                        Background="#2D2D30" Foreground="#E0E0E0" BorderBrush="#3E3E42"/>
+            <TextBlock Text="até" VerticalAlignment="Center" Foreground="#E0E0E0" Margin="4,0" Visibility="Collapsed" x:Name="DateSeparator"/>
+            <DatePicker x:Name="EndDatePicker" Margin="4,0,0,0" Visibility="Collapsed"
+                        SelectedDateChanged="CustomRange_Changed"
+                        Background="#2D2D30" Foreground="#E0E0E0" BorderBrush="#3E3E42"/>
+          </StackPanel>
+
           <!-- Gráfico: Bateria -->
-          <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}">
+          <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardStyle}">
             <StackPanel>
               <TextBlock Text="🔋 Carga da Bateria (%)" Style="{StaticResource CardTitleStyle}"/>
               <lvc:CartesianChart x:Name="BatteryChart" Height="200"/>
@@ -101,7 +121,7 @@
           </Border>
 
           <!-- Gráfico: Carga -->
-          <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource CardStyle}">
+          <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardStyle}">
             <StackPanel>
               <TextBlock Text="⚡ Carga do UPS (%)" Style="{StaticResource CardTitleStyle}"/>
               <lvc:CartesianChart x:Name="LoadChart" Height="200"/>
@@ -109,7 +129,7 @@
           </Border>
 
           <!-- Gráfico: Tensão -->
-          <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardStyle}">
+          <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CardStyle}">
             <StackPanel>
               <TextBlock Text="🔌 Tensão (V)" Style="{StaticResource CardTitleStyle}"/>
               <lvc:CartesianChart x:Name="VoltageChart" Height="200"/>
@@ -117,7 +137,7 @@
           </Border>
 
           <!-- Gráfico: Consumo -->
-          <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardStyle}">
+          <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource CardStyle}">
             <StackPanel>
               <TextBlock Text="💡 Consumo (W)" Style="{StaticResource CardTitleStyle}"/>
               <lvc:CartesianChart x:Name="WattsChart" Height="200"/>

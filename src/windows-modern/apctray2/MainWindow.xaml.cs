@@ -214,6 +214,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             TimeLeft = tl.Contains(" ") ? tl.Split(' ')[0] : tl;
         }
         
+        // Atualizar EnergyFlowControl
+        EnergyFlow?.UpdateStatus(map);
+        
         if (map.TryGetValue("BCHARGE", out var bc))
         {
             var parts = bc.Split(new[] { ' ', '%', '.' }, StringSplitOptions.RemoveEmptyEntries);

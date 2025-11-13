@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
 C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\App.xaml
-5-1198320489
+6-2086146008
 41956378640
-141328214890
+171100332127
 218-1875818716
-AdvancedWindow.xaml;ConfigWindow.xaml;EventsWindow.xaml;MainWindow.xaml;PortDetectWindow.xaml;
+AdvancedWindow.xaml;ConfigWindow.xaml;EnergyFlowControl.xaml;EventsWindow.xaml;MainWindow.xaml;PortDetectWindow.xaml;
 
 False
 

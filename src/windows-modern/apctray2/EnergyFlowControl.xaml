@@ -1,0 +1,126 @@
+<UserControl x:Class="apctray2.EnergyFlowControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d" 
+             d:DesignHeight="220" d:DesignWidth="500"
+             Background="#0C0D17">
+    <Border CornerRadius="8" Padding="16" Background="#0C0D17">
+        <StackPanel>
+            <!-- Título -->
+            <TextBlock Text="Fluxo de Energia" 
+                       FontSize="16" 
+                       FontWeight="SemiBold" 
+                       Foreground="#9CA3AF" 
+                       HorizontalAlignment="Center" 
+                       Margin="0,0,0,12"/>
+            
+            <!-- Linha Superior: Grid <-> Bateria -->
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Grid (Rede) -->
+                <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                    <TextBlock x:Name="GridIcon" 
+                               Text="🔌" 
+                               FontSize="36" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Rede" 
+                               FontSize="11" 
+                               Foreground="#9CA3AF" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="GridValue" 
+                               Text="--" 
+                               FontSize="10" 
+                               HorizontalAlignment="Center"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+                
+                <!-- Seta animada Grid <-> Bateria -->
+                <TextBlock x:Name="GridBatteryArrow" 
+                           Grid.Column="1" 
+                           Text="⚡" 
+                           FontSize="24" 
+                           VerticalAlignment="Center"
+                           Margin="12,0">
+                    <TextBlock.RenderTransform>
+                        <RotateTransform x:Name="ArrowRotation1" Angle="0" CenterX="12" CenterY="12"/>
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                
+                <!-- Bateria -->
+                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                    <TextBlock x:Name="BatteryIcon" 
+                               Text="🔋" 
+                               FontSize="36" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Bateria" 
+                               FontSize="11" 
+                               Foreground="#9CA3AF" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="BatteryValue" 
+                               Text="--" 
+                               FontSize="10" 
+                               HorizontalAlignment="Center"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+            </Grid>
+            
+            <!-- Linha Inferior: UPS <-> Dispositivos -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- UPS -->
+                <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                    <TextBlock x:Name="UpsIcon" 
+                               Text="⚡" 
+                               FontSize="36" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="UpsLabel" 
+                               Text="UPS" 
+                               FontSize="11" 
+                               Foreground="#9CA3AF" 
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+                
+                <!-- Seta animada UPS -> Dispositivos -->
+                <TextBlock x:Name="UpsDevicesArrow" 
+                           Grid.Column="1" 
+                           Text="→" 
+                           FontSize="24" 
+                           VerticalAlignment="Center"
+                           Margin="12,0">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="ArrowScale2" ScaleX="1" ScaleY="1" CenterX="12" CenterY="12"/>
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                
+                <!-- Dispositivos -->
+                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                    <TextBlock x:Name="DevicesIcon" 
+                               Text="💻" 
+                               FontSize="36" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Dispositivos" 
+                               FontSize="11" 
+                               Foreground="#9CA3AF" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="DevicesValue" 
+                               Text="--" 
+                               FontSize="10" 
+                               HorizontalAlignment="Center"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

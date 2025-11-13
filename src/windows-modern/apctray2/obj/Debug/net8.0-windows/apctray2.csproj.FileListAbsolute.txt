@@ -125,3 +125,7 @@ C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debu
 C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\apctray2.pdb
 C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\apctray2.genruntimeconfig.cache
 C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\ref\apctray2.dll
+C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\EnergyFlowControl.baml
+C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\EnergyFlowControl.g.cs
+C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
+C:\Users\Kuiper\Documents\GitHub\ApcCtrl-Br\src\windows-modern\apctray2\obj\Debug\net8.0-windows\apctray2_MarkupCompile.lref

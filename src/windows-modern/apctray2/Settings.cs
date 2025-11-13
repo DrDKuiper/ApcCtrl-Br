@@ -9,6 +9,35 @@ public sealed class Settings
     public string Host { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 3551;
     public int RefreshSeconds { get; set; } = 5;
+    
+    // Voltage and frequency thresholds
+    public double MinVoltage { get; set; } = 105.0;
+    public double MaxVoltage { get; set; } = 140.0;
+    public double MinFrequency { get; set; } = 58.0;
+    public double MaxFrequency { get; set; } = 62.0;
+    
+    // Battery configuration (2x12V/7Ah in series)
+    public double BatteryNominalVoltage { get; set; } = 24.0;
+    public double BatteryNominalCapacityAh { get; set; } = 7.0;
+    
+    // Power factor for VA → W conversion
+    public double AssumedPowerFactor { get; set; } = 0.6;
+    
+    // Cycle tracking
+    public int CycleCount { get; set; } = 0;
+    public double OnBattStartEpoch { get; set; } = 0;
+    public double LastOnBattSeconds { get; set; } = 0;
+    
+    // Capacity estimation
+    public double EstimatedCapacityAh { get; set; } = 0;
+    public int EstimatedCapacitySamples { get; set; } = 0;
+    public double BatteryReplacedEpoch { get; set; } = 0;
+    
+    // Telegram configuration
+    public string TelegramBotToken { get; set; } = "";
+    public string TelegramChatId { get; set; } = "";
+    public int DailyLogHour { get; set; } = 8;
+    public bool TelegramEnabled { get; set; } = false;
 
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "apctray2");
     private static readonly string FilePath = Path.Combine(Dir, "settings.json");

@@ -1,6 +1,7 @@
 <Window x:Class="apctray2.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:apctray2"
         Title="apcctrl - Status do UPS" Height="620" Width="780"
         WindowStartupLocation="CenterScreen"
         Background="#1E1E1E">
@@ -120,12 +121,16 @@
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
       <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
         <RowDefinition Height="*"/>
       </Grid.RowDefinitions>
 
+      <!-- Fluxo de Energia (full-width) -->
+      <local:EnergyFlowControl x:Name="EnergyFlow" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="8"/>
+
       <!-- Bateria -->
-      <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}">
+      <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardStyle}">
         <StackPanel>
           <TextBlock Text="🔋 BATERIA" Style="{StaticResource CardTitleStyle}"/>
           <Grid Margin="0,8,0,0">
@@ -145,7 +150,7 @@
       </Border>
 
       <!-- Carga -->
-      <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource CardStyle}">
+      <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardStyle}">
         <StackPanel>
           <TextBlock Text="⚡ CARGA" Style="{StaticResource CardTitleStyle}"/>
           <Grid Margin="0,8,0,0">
@@ -166,7 +171,7 @@
       </Border>
 
       <!-- Tensão de Entrada -->
-      <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardStyle}">
+      <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CardStyle}">
         <StackPanel>
           <TextBlock Text="TENSÃO ENTRADA" Style="{StaticResource MetricLabelStyle}"/>
           <TextBlock Text="{Binding InputVoltage}" FontSize="28" FontWeight="Bold" Foreground="#FFFFFF"/>
@@ -175,7 +180,7 @@
       </Border>
 
       <!-- Tensão de Saída -->
-      <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardStyle}">
+      <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource CardStyle}">
         <StackPanel>
           <TextBlock Text="TENSÃO SAÍDA" Style="{StaticResource MetricLabelStyle}"/>
           <TextBlock Text="{Binding OutputVoltage}" FontSize="28" FontWeight="Bold" Foreground="#FFFFFF"/>
