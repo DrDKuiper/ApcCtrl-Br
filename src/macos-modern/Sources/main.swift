@@ -4,130 +4,80 @@
 // Minimal menubar app in Swift using AppKit
 
 import Cocoa
-import UserNotifications
-import Foundation
-import SwiftUI
-import ServiceManagement
-// Charts is available on macOS 13+
-#if canImport(Charts)
-import Charts
-#endif
+        VStack(spacing: 8) {
+            Text("Fluxo de Energia")
+                .font(.headline)
+                .foregroundColor(.secondary)
 
-// Simple NIS client to talk to apcctrl daemon
-final class NisClient {
-    let host: String
-    let port: Int
-    init(host: String = "127.0.0.1", port: Int = 3551) {
-        self.host = host; self.port = port
-    }
+            let standby = Color.red.opacity(0.6)
+            let gridAlert = (statusData["GRID_ALERT"] == "1")
+            let battAlert = (statusData["BATT_ALERT"] == "1")
+            let upsAlert  = (statusData["UPS_ALERT"]  == "1")
+            let gridColor = gridAlert ? .red : (isOnBatt ? standby : Color.green)
+            let battColor = battAlert ? .red : (isOnBatt ? Color.orange : standby)
+            let upsColor: Color = upsAlert ? .red : (isCharging ? .yellow : (isOnBatt ? .orange : .green))
+            let outColor: Color = isOnBatt ? .orange : .green
 
-    
-
-    enum UpsState: String { case commlost, onbatt, charging, online }
-
-    func fetchStatus(timeout: TimeInterval = 3.0) -> (UpsState, [String:String]) {
-        var dict: [String:String] = [:]
-        var state: UpsState = .commlost
-
-        // NIS: Connect and send "status\n"
-        let semaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            defer { semaphore.signal() }
-            if let (input, output) = self.openStream() {
-                let cmd = "status\n"
-                if let data = cmd.data(using: .ascii) {
-                    data.withUnsafeBytes { ptr in
-                        guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-                        output.write(base, maxLength: data.count)
-                    }
+            HStack(alignment: .center, spacing: 24) {
+                // Rede
+                VStack(spacing: 4) {
+                    Image(systemName: "powerplug")
+                        .font(.system(size: 40))
+                        .foregroundColor(gridColor)
+                    Text("Rede")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(statusData["LINEV"] ?? "--")
+                        .font(.caption2)
+                        .foregroundColor(gridColor)
                 }
-                output.close() // server pushes status then closes
 
-                let bufferSize = 4096
-                let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-                defer { buffer.deallocate() }
-                var raw = Data()
-                while true {
-                    let read = input.read(buffer, maxLength: bufferSize)
-                    if read <= 0 { break } // 0 = EOF, -1 = error
-                    raw.append(buffer, count: read)
+                // Bateria
+                VStack(spacing: 4) {
+                    Image(systemName: "battery.75")
+                        .font(.system(size: 40))
+                        .foregroundColor(battColor)
+                    Text("Bateria")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(statusData["BCHARGE"] ?? "--")
+                        .font(.caption2)
+                        .foregroundColor(battColor)
                 }
-                input.close()
 
-                if let text = String(data: raw, encoding: .ascii) {
-                    dict = self.parseKeyValueText(text)
+                // Seta (entrada -> UPS) com cor dinâmica (grid ativa ou bateria ativa)
+                flowArrow(color: isOnBatt ? battColor : gridColor)
+                    .frame(maxWidth: .infinity)
+
+                // UPS
+                VStack(spacing: 4) {
+                    Image(systemName: isCharging ? "bolt.fill" : "bolt.shield.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(upsColor)
+                    Text(isCharging ? "UPS (Carregando)" : "UPS")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-            }
 
-            // Fallback: if NIS didn't return anything usable, try running apcaccess locally
-            if dict.isEmpty || dict["STATUS"] == nil {
-                if let text = self.runApcaccess() {
-                    dict = self.parseKeyValueText(text)
-                }
-            }
+                // Seta (UPS -> Dispositivos)
+                flowArrow(color: outColor)
+                    .frame(maxWidth: .infinity)
 
-            // Determine state heuristics using fields (NIS or apcaccess)
-            if let status = dict["STATUS"] {
-                if status.contains("COMMLOST") { state = .commlost }
-                else if status.contains("ONBATT") { state = .onbatt }
-                else if status.contains("ONLINE") { state = .online }
-                else { state = .charging }
-            } else {
-                // If we still have no status but have charge < 100, call charging
-                if dict["BCHARGE"].flatMap({ Double($0.split(separator: " ").first ?? "0") }) ?? 100 < 100 { state = .charging }
-            }
-        }
-        _ = semaphore.wait(timeout: .now() + timeout)
-        return (state, dict)
-    }
-
-    func fetchEvents(timeout: TimeInterval = 3.0) -> [String] {
-        var events: [String] = []
-        let semaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            defer { semaphore.signal() }
-            guard let (input, output) = self.openStream() else { return }
-            let cmd = "events\n"
-            if let data = cmd.data(using: .ascii) {
-                data.withUnsafeBytes { ptr in
-                    guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-                    output.write(base, maxLength: data.count)
+                // Dispositivos
+                VStack(spacing: 4) {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 40))
+                        .foregroundColor(outColor)
+                    Text("Dispositivos")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(statusData["LOADPCT"] ?? "--")
+                        .font(.caption2)
+                        .foregroundColor(outColor)
                 }
             }
-            output.close()
-
-            let bufferSize = 4096
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-            defer { buffer.deallocate() }
-            var data = Data()
-            while true {
-                let read = input.read(buffer, maxLength: bufferSize)
-                if read <= 0 { break }
-                data.append(buffer, count: read)
-            }
-            input.close()
-
-            if let text = String(data: data, encoding: .ascii) {
-                // Cada linha já é um evento textual do NIS
-                events = text.split(separator: "\n").map { String($0) }
-            }
-        }
-        _ = semaphore.wait(timeout: .now() + timeout)
-        return events
-    }
-
-    private func openStream() -> (InputStream, OutputStream)? {
-        var inS: InputStream?; var outS: OutputStream?
-        Stream.getStreamsToHost(withName: host, port: port, inputStream: &inS, outputStream: &outS)
-        guard let i = inS, let o = outS else { return nil }
-        i.open(); o.open(); return (i,o)
-    }
-
-    // Parse KEY : VALUE lines common to NIS and apcaccess outputs
-    private func parseKeyValueText(_ text: String) -> [String: String] {
-        var d: [String: String] = [:]
-        for line in text.split(separator: "\n") {
-            let parts = line.split(separator: ":", maxSplits: 1)
+            .frame(maxWidth: .infinity)
+            .frame(height: 100)
             if parts.count == 2 {
                 let key = parts[0].trimmingCharacters(in: .whitespaces)
                 let value = parts[1].trimmingCharacters(in: .whitespaces)
@@ -516,6 +466,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     } else if self.lastOnBatteryDuration > 0 {
                         batteryLine = "\n🔋 Último ciclo em bateria: \(self.formatDuration(self.lastOnBatteryDuration))"
                     }
+                    // Definir cor do ícone de status para alertas
+                    var hasAnomaly = self.lastVoltageAlerted || self.lastFrequencyAlerted
+                    let upper = statusText.uppercased()
+                    if upper.contains("TRIM") || upper.contains("BOOST") || upper.contains("LOWBATT") || upper.contains("REPLACEBATT") || upper.contains("OVERLOAD") {
+                        hasAnomaly = true
+                    }
+                    if let btn = self.statusItem.button {
+                        btn.contentTintColor = hasAnomaly ? NSColor.systemRed : nil
+                    }
+
                     button.toolTip = "UPS: \(dict["UPSNAME"] ?? "?")\nStatus: \(emoji) \(statusText)\(batteryLine)"
                 }
 
@@ -635,6 +595,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         }
                     }
                 }
+
+                // Marcar anomalias para a UI (voltagem/frequencia fora, TRIM/BOOST, LOWBATT/REPLACEBATT/OVERLOAD)
+                func parseFirst(_ raw: String?) -> Double? {
+                    guard let raw = raw else { return nil }
+                    let first = raw.split(separator: " ").first
+                    return first.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                }
+                let s = Settings.shared
+                if let v = parseFirst(dict["LINEV"]) {
+                    if v < s.voltageLow || v > s.voltageHigh { dict["GRID_ALERT"] = "1" }
+                }
+                if let f = parseFirst(dict["LINEFREQ"]) {
+                    if f < s.frequencyLow || f > s.frequencyHigh { dict["GRID_ALERT"] = "1" }
+                }
+                let stUp = (dict["STATUS"] ?? "").uppercased()
+                if stUp.contains("TRIM") || stUp.contains("BOOST") { dict["GRID_ALERT"] = "1" }
+                if stUp.contains("LOWBATT") || stUp.contains("REPLACEBATT") { dict["BATT_ALERT"] = "1" }
+                if stUp.contains("OVERLOAD") { dict["UPS_ALERT"] = "1" }
                 
                 return dict
             })
