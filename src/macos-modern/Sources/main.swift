@@ -3,7 +3,6 @@ import Foundation
 import SwiftUI
 import UserNotifications
 import ServiceManagement
-\r
 #if canImport(Charts)
 import Charts
 #endif
