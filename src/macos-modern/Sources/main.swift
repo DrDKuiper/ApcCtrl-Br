@@ -1,78 +1,43 @@
-        VStack(spacing: 8) {
-            Text("Fluxo de Energia")
-                .font(.headline)
-                .foregroundColor(.secondary)
+import Cocoa
+import Foundation
+import SwiftUI
+import UserNotifications
+import ServiceManagement
 
-            // Cores dinâmicas com suporte a alertas
-            let standby = Color.red.opacity(0.6)
-            let gridAlert = (statusData["GRID_ALERT"] == "1")
-            let battAlert = (statusData["BATT_ALERT"] == "1")
-            let upsAlert  = (statusData["UPS_ALERT"]  == "1")
-            let gridColor = gridAlert ? .red : (isOnBatt ? standby : Color.green)
-            let battColor = battAlert ? .red : (isOnBatt ? Color.orange : standby)
-            let upsColor: Color = upsAlert ? .red : (isCharging ? .yellow : (isOnBatt ? .orange : .green))
-            let outColor: Color = isOnBatt ? .orange : .green
+// Minimal NIS client facade; tries `apcaccess` as fallback
+final class NisClient {
+    enum UpsState { case online, charging, onbatt, commlost }
+    let host: String
+    let port: Int
+    init(host: String, port: Int) { self.host = host; self.port = port }
+    func fetchStatus() -> (UpsState, [String:String]) { (.commlost, [:]) }
+    func fetchEvents() -> [String] { [] }
+}
 
-            HStack(alignment: .center, spacing: 24) {
-                // Rede
-                VStack(spacing: 4) {
-                    Image(systemName: "powerplug")
-                        .font(.system(size: 40))
-                        .foregroundColor(gridColor)
-                    Text("Rede")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(statusData["LINEV"] ?? "--")
-                        .font(.caption2)
-                        .foregroundColor(gridColor)
-                }
-
-                // Bateria
-                VStack(spacing: 4) {
-                    Image(systemName: "battery.75")
-                        .font(.system(size: 40))
-                        .foregroundColor(battColor)
-                    Text("Bateria")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(statusData["BCHARGE"] ?? "--")
-                        .font(.caption2)
-                        .foregroundColor(battColor)
-                }
-
-                // Seta (entrada -> UPS) com cor dinâmica (grid ativa ou bateria ativa)
-                flowArrow(color: isOnBatt ? battColor : gridColor)
-                    .frame(maxWidth: .infinity)
-
-                // UPS
-                VStack(spacing: 4) {
-                    Image(systemName: isCharging ? "bolt.fill" : "bolt.shield.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(upsColor)
-                    Text(isCharging ? "UPS (Carregando)" : "UPS")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                // Seta (UPS -> Dispositivos)
-                flowArrow(color: outColor)
-                    .frame(maxWidth: .infinity)
-
-                // Dispositivos
-                VStack(spacing: 4) {
-                    Image(systemName: "laptopcomputer")
-                        .font(.system(size: 40))
-                        .foregroundColor(outColor)
-                    Text("Dispositivos")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(statusData["LOADPCT"] ?? "--")
-                        .font(.caption2)
-                        .foregroundColor(outColor)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 100)
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    var client: NisClient!
+    var timer: Timer?
+    var lastEventLine: String = ""
+    var lastStatusText: String = ""
+    var eventsCache: [String] = []
+    var eventsWindow: EventsWindowController?
+    var selfTestsWindow: SelfTestsWindowController?
+    var graphsWindow: GraphsWindowController?
+    var statusWindow: NSWindow?
+    var lastState: NisClient.UpsState = .commlost
+    var lastVoltageAlerted: Bool = false
+    var lastFrequencyAlerted: Bool = false
+    var onBatteryStart: Date? = nil
+    var lastOnBatteryDuration: TimeInterval = 0
+    var onBattStartBcharge: Double? = nil
+    var onBattStartLoadPct: Double? = nil
+    var onBattStartBattV: Double? = nil
+    var dailyLogTimer: Timer?
+    var lastDailyLogDate: Date? = nil
+    var dailyLogHour: Int = 8
+    var lastUpsName: String = "UPS"
+    let metrics = MetricsStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button { button.image = makeIcon(system: "exclamationmark.circle") }
