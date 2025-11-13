@@ -35,7 +35,8 @@ final class NisClient {
     }
     
     private func nisQuery(cmd: String) -> [String:String] {
-        guard let sock = socket(AF_INET, SOCK_STREAM, 0), sock >= 0 else { return [:] }
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return [:] }
         defer { close(sock) }
         var tv = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
