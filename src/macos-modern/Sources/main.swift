@@ -3,6 +3,10 @@ import Foundation
 import SwiftUI
 import UserNotifications
 import ServiceManagement
+\r
+#if canImport(Charts)
+import Charts
+#endif
 
 // Minimal NIS client facade; tries `apcaccess` as fallback
 final class NisClient {
