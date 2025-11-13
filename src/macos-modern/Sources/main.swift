@@ -1187,7 +1187,8 @@ final class Settings {
 // MARK: - Energy Flow Diagram
 struct EnergyFlowView: View {
     let statusData: [String: String]
-    @State private var animationPhase: CGFloat = 0
+    // Usar Double para reduzir conversões entre CGFloat/Double durante animação e trigonometria
+    @State private var animationPhase: Double = 0
     
     var body: some View {
         let status = statusData["STATUS"] ?? ""
@@ -1329,15 +1330,21 @@ struct EnergyFlowView: View {
         .cornerRadius(8)
     }
     
+    // Opacidade separada em função simples para evitar expressão pesada no ViewBuilder
+    private func arrowOpacity(index: Int) -> Double {
+        let shift = Double(index) * (.pi * 0.5)
+        let val = sin(animationPhase * (.pi * 2) - shift) * 0.5 + 0.5
+        // Clamp em [0,1] por segurança
+        return min(1.0, max(0.0, val))
+    }
+
     private func flowArrow(color: Color) -> some View {
         HStack(spacing: 4) {
-            ForEach(0..<3) { i in
-                if #available(macOS 11.0, *) {
-                    Image(systemName: "arrowtriangle.right.fill")
-                        .font(.caption)
-                        .foregroundColor(color)
-                        .opacity(sin(animationPhase * .pi * 2 - Double(i) * .pi * 0.5) * 0.5 + 0.5)
-                }
+            ForEach(0..<3, id: \.self) { i in
+                Image(systemName: "arrowtriangle.right.fill")
+                    .font(.caption)
+                    .foregroundColor(color)
+                    .opacity(arrowOpacity(index: i))
             }
         }
     }
