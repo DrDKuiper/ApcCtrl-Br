@@ -414,12 +414,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let first = raw.split(separator: " ").first
                     return first.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
                 }
+                
+                // Calcular TIMELEFT estimado real baseado em descarga observada
+                var realTimeLeft: Double? = nil
+                if state == .onbatt, let start = self.onBatteryStart {
+                    let elapsed = Date().timeIntervalSince(start) / 60.0 // minutos
+                    if let startCharge = self.onBattStartBcharge,
+                       let currentCharge = parseFirst(dict["BCHARGE"]),
+                       currentCharge < startCharge,
+                       elapsed > 0 {
+                        let discharged = startCharge - currentCharge
+                        let ratePerMin = discharged / elapsed
+                        if ratePerMin > 0.01 {
+                            // Extrapolar quanto tempo para chegar a 10% (nível crítico)
+                            let remaining = currentCharge - 10.0
+                            realTimeLeft = max(0, remaining / ratePerMin)
+                        }
+                    }
+                }
+                
                 let sample = MetricSample(
                     time: Date(),
                     charge: parseFirst(dict["BCHARGE"]),
                     load: parseFirst(dict["LOADPCT"]),
                     lineV: parseFirst(dict["LINEV"]),
-                    freq: parseFirst(dict["LINEFREQ"]))
+                    freq: parseFirst(dict["LINEFREQ"]),
+                    timeLeft: parseFirst(dict["TIMELEFT"]),
+                    timeLeftEst: realTimeLeft)
                 self.metrics.append(sample)
                 if let button = self.statusItem.button {
                     switch state {
@@ -585,13 +606,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if statusWindow == nil {
             let contentView = StatusView(fetchStatus: { [weak self] in
                 guard let self = self else { return [:] }
-                let (_, base) = self.client.fetchStatus()
+                let (state, base) = self.client.fetchStatus()
                 var dict = base
                 if let start = self.onBatteryStart {
                     dict["ONBATT_ELAPSED"] = self.formatDuration(Date().timeIntervalSince(start))
                 } else if self.lastOnBatteryDuration > 0 {
                     dict["ONBATT_LAST"] = self.formatDuration(self.lastOnBatteryDuration)
                 }
+                
+                // Adicionar estimativa real de TIMELEFT
+                if state == .onbatt, let start = self.onBatteryStart {
+                    func parseFirst(_ raw: String?) -> Double? {
+                        guard let raw = raw else { return nil }
+                        let first = raw.split(separator: " ").first
+                        return first.flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                    }
+                    let elapsed = Date().timeIntervalSince(start) / 60.0 // minutos
+                    if let startCharge = self.onBattStartBcharge,
+                       let currentCharge = parseFirst(dict["BCHARGE"]),
+                       currentCharge < startCharge,
+                       elapsed > 0 {
+                        let discharged = startCharge - currentCharge
+                        let ratePerMin = discharged / elapsed
+                        if ratePerMin > 0.01 {
+                            let remaining = currentCharge - 10.0
+                            let estMin = max(0, remaining / ratePerMin)
+                            dict["TIMELEFT_EST"] = String(format: "%.0f min", estMin)
+                        }
+                    }
+                }
+                
                 return dict
             })
             let hostingController = NSHostingController(rootView: contentView)
@@ -1140,6 +1184,165 @@ final class Settings {
     }
 }
 
+// MARK: - Energy Flow Diagram
+struct EnergyFlowView: View {
+    let statusData: [String: String]
+    @State private var animationPhase: CGFloat = 0
+    
+    var body: some View {
+        let status = statusData["STATUS"] ?? ""
+        let isOnBatt = status.contains("ONBATT")
+        let isCharging = status.contains("CHARGING")
+        
+        VStack(spacing: 8) {
+            Text("Fluxo de Energia")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            ZStack {
+                if isOnBatt {
+                    // Bateria → UPS → Dispositivos
+                    HStack(spacing: 20) {
+                        // Bateria
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "battery.75")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.orange)
+                            }
+                            Text("Bateria")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if let charge = statusData["BCHARGE"] {
+                                Text(charge)
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        
+                        // Seta animada
+                        flowArrow(color: .orange)
+                        
+                        // UPS
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "bolt.shield")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.orange)
+                            }
+                            Text("UPS")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        // Seta animada
+                        flowArrow(color: .orange)
+                        
+                        // Dispositivos
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "laptopcomputer")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.orange)
+                            }
+                            Text("Dispositivos")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if let load = statusData["LOADPCT"] {
+                                Text(load)
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    }
+                } else {
+                    // Rede → Casa → Dispositivos (e UPS carregando se CHARGING)
+                    HStack(spacing: 20) {
+                        // Rede elétrica
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "powerplug")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.green)
+                            }
+                            Text("Rede")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if let voltage = statusData["LINEV"] {
+                                Text(voltage)
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        
+                        // Seta animada
+                        flowArrow(color: .green)
+                        
+                        // UPS
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: isCharging ? "bolt.fill" : "bolt.shield.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(isCharging ? .yellow : .green)
+                            }
+                            Text(isCharging ? "UPS (Carregando)" : "UPS")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if isCharging, let charge = statusData["BCHARGE"] {
+                                Text(charge)
+                                    .font(.caption2)
+                                    .foregroundColor(.yellow)
+                            }
+                        }
+                        
+                        // Seta animada
+                        flowArrow(color: .green)
+                        
+                        // Dispositivos
+                        VStack {
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "house.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.green)
+                            }
+                            Text("Dispositivos")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if let load = statusData["LOADPCT"] {
+                                Text(load)
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(height: 100)
+            .onAppear {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    animationPhase = 1.0
+                }
+            }
+        }
+        .padding()
+        .background(Color(red: 0.05, green: 0.08, blue: 0.15))
+        .cornerRadius(8)
+    }
+    
+    private func flowArrow(color: Color) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { i in
+                if #available(macOS 11.0, *) {
+                    Image(systemName: "arrowtriangle.right.fill")
+                        .font(.caption)
+                        .foregroundColor(color)
+                        .opacity(sin(animationPhase * .pi * 2 - Double(i) * .pi * 0.5) * 0.5 + 0.5)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Status View (SwiftUI)
 struct StatusView: View {
     let fetchStatus: () -> [String: String]
@@ -1208,12 +1411,6 @@ struct StatusView: View {
                         icon: "bolt.circle",
                         colorScheme: colorScheme
                     )
-                    MetricCard(
-                        title: "Ciclos",
-                        value: String(Settings.shared.cycleCount),
-                        icon: "arrow.2.circlepath",
-                        colorScheme: colorScheme
-                    )
                 }
                 
                 // Voltage & Frequency
@@ -1239,13 +1436,24 @@ struct StatusView: View {
                         icon: "waveform",
                         colorScheme: colorScheme
                     )
-                    MetricCard(
-                        title: "Tempo Rest.",
-                        value: statusData["TIMELEFT"] ?? "--",
-                        icon: "clock",
-                        colorScheme: colorScheme
-                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        MetricCard(
+                            title: "Tempo Rest.",
+                            value: statusData["TIMELEFT"] ?? "--",
+                            icon: "clock",
+                            colorScheme: colorScheme
+                        )
+                        if let estTime = statusData["TIMELEFT_EST"] {
+                            Text("Estimado: \(estTime)")
+                                .font(.caption2)
+                                .foregroundColor(.yellow)
+                                .padding(.horizontal, 8)
+                        }
+                    }
                 }
+                
+                // Energy Flow Diagram
+                EnergyFlowView(statusData: statusData)
                 
                 // Detailed Info
                 Divider().padding(.vertical, 4)
@@ -1342,9 +1550,11 @@ struct MetricSample: Identifiable, Codable {
     let load: Double?
     let lineV: Double?
     let freq: Double?
+    let timeLeft: Double?      // TIMELEFT reportado em minutos
+    let timeLeftEst: Double?   // Tempo estimado real em minutos
     
     enum CodingKeys: String, CodingKey {
-        case id, time, charge, load, lineV, freq
+        case id, time, charge, load, lineV, freq, timeLeft, timeLeftEst
     }
 }
 
@@ -1410,7 +1620,7 @@ final class MetricsStore: ObservableObject {
 struct GraphsView: View {
     @ObservedObject var store: MetricsStore
     enum Metric: String, CaseIterable, Identifiable {
-        case charge, load, lineV, freq
+        case charge, load, lineV, freq, timeLeft, timeLeftEst
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -1418,6 +1628,8 @@ struct GraphsView: View {
             case .load:   return "Carga (%)"
             case .lineV:  return "Tensão (V)"
             case .freq:   return "Frequência (Hz)"
+            case .timeLeft: return "Tempo Rest. UPS (min)"
+            case .timeLeftEst: return "Tempo Est. Real (min)"
             }
         }
     }
@@ -1477,6 +1689,10 @@ struct GraphsView: View {
                                 Text("60Hz").font(.caption).foregroundColor(.secondary)
                             }
                     }
+                case .timeLeft:
+                    if let y = s.timeLeft { LineMark(x: .value("Hora", s.time), y: .value("min", y)).foregroundStyle(.yellow) }
+                case .timeLeftEst:
+                    if let y = s.timeLeftEst { LineMark(x: .value("Hora", s.time), y: .value("min", y)).foregroundStyle(.red) }
                 }
             }
             .chartOverlay { proxy in
@@ -1537,6 +1753,8 @@ struct GraphsView: View {
         case .load:   return "\(ts)  \(String(format: "%.1f", s.load ?? .nan)) %"
         case .lineV:  return "\(ts)  \(String(format: "%.1f", s.lineV ?? .nan)) V"
         case .freq:   return "\(ts)  \(String(format: "%.1f", s.freq ?? .nan)) Hz"
+        case .timeLeft: return "\(ts)  \(String(format: "%.0f", s.timeLeft ?? .nan)) min"
+        case .timeLeftEst: return "\(ts)  \(String(format: "%.0f", s.timeLeftEst ?? .nan)) min"
         }
     }
     private var tableRows: [MetricTableRow] {
@@ -1548,6 +1766,8 @@ struct GraphsView: View {
             case .load:   val = String(format: "%.1f %%", s.load ?? .nan)
             case .lineV:  val = String(format: "%.1f V", s.lineV ?? .nan)
             case .freq:   val = String(format: "%.1f Hz", s.freq ?? .nan)
+            case .timeLeft: val = String(format: "%.0f min", s.timeLeft ?? .nan)
+            case .timeLeftEst: val = String(format: "%.0f min", s.timeLeftEst ?? .nan)
             }
             return MetricTableRow(timestamp: ts, value: val)
         }
