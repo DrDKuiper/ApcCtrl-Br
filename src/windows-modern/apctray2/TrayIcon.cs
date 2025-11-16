@@ -34,7 +34,7 @@ public sealed class TrayIcon : IDisposable
 
     var menu = new ContextMenu();
     menu.Items.Add(new MenuItem { Header = "🔍 Status", Command = new RelayCommand(_ => _window.Show()) });
-    menu.Items.Add(new MenuItem { Header = "📊 Dashboard Avançado", Command = new RelayCommand(_ => new AdvancedWindow().Show()) });
+    menu.Items.Add(new MenuItem { Header = "📊 Dashboard Avançado", Command = new RelayCommand(_ => ShowAdvancedWindow()) });
     menu.Items.Add(new MenuItem { Header = "📝 Eventos", Command = new RelayCommand(_ => new EventsWindow(this).Show()) });
     menu.Items.Add(new MenuItem { Header = "⚙️ Configurações", Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) });
     menu.Items.Add(new MenuItem { Header = "🔌 Detectar Nobreak (COM)", Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) });
@@ -77,6 +77,22 @@ public sealed class TrayIcon : IDisposable
         _dailyLogTimer.Start();
     }
 
+    private AdvancedWindow? _advancedWindow = null;
+    
+    private void ShowAdvancedWindow()
+    {
+        if (_advancedWindow == null || !_advancedWindow.IsVisible)
+        {
+            _advancedWindow = new AdvancedWindow();
+            _advancedWindow.Closed += (s, e) => _advancedWindow = null;
+            _advancedWindow.Show();
+        }
+        else
+        {
+            _advancedWindow.Activate();
+        }
+    }
+    
     public void SetStateIcon(string state)
     {
         var name = state switch

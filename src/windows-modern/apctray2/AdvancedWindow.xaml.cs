@@ -92,6 +92,16 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private string _chargeEstimate = "N/A";
     public string ChargeEstimate { get => _chargeEstimate; set { _chargeEstimate = value; OnPropertyChanged(nameof(ChargeEstimate)); } }
 
+    // Saúde da bateria
+    private string _batteryHealthText = "--";
+    public string BatteryHealthText { get => _batteryHealthText; set { _batteryHealthText = value; OnPropertyChanged(nameof(BatteryHealthText)); } }
+
+    private string _batteryHealthDetails = "";
+    public string BatteryHealthDetails { get => _batteryHealthDetails; set { _batteryHealthDetails = value; OnPropertyChanged(nameof(BatteryHealthDetails)); } }
+
+    private Brush _batteryHealthBrush = Brushes.White;
+    public Brush BatteryHealthBrush { get => _batteryHealthBrush; set { _batteryHealthBrush = value; OnPropertyChanged(nameof(BatteryHealthBrush)); } }
+
     public AdvancedWindow()
     {
         _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
@@ -102,10 +112,14 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         
         _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _updateTimer.Tick += async (s, e) => await UpdateDataAsync();
-        _updateTimer.Start();
         
-        _ = UpdateDataAsync();
-        _ = LoadLogsAsync();
+        // Adiar carregamento de dados para depois da janela abrir
+        Loaded += async (s, e) =>
+        {
+            _updateTimer.Start();
+            await UpdateDataAsync();
+            await LoadLogsAsync();
+        };
     }
 
     private void SetupCharts()
@@ -326,6 +340,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             
             if (map.TryGetValue("ITEMP", out var temp))
                 Temperature = temp.Contains("C") ? temp : $"{temp} °C";
+
+            // Saúde da bateria baseada em capacidade estimada e nominal
+            UpdateBatteryHealth();
             
             // Rastrear tempo em modo bateria
             bool isOnBattery = Status.Contains("ONBATT", StringComparison.OrdinalIgnoreCase);
@@ -400,6 +417,48 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         {
             AddLogEntry($"❌ Erro: {ex.Message}");
         }
+    }
+
+    private void UpdateBatteryHealth()
+    {
+        var estAh = Settings.Current.EstimatedCapacityAh;
+        var nomAh = Settings.Current.BatteryNominalCapacityAh;
+        var cycles = Settings.Current.CycleCount;
+        var replacedEpoch = Settings.Current.BatteryReplacedEpoch;
+
+        if (estAh <= 0 || nomAh <= 0)
+        {
+            BatteryHealthText = "Sem dados suficientes";
+            BatteryHealthDetails = "Execute alguns ciclos completos para estimar a capacidade.";
+            BatteryHealthBrush = Brushes.Gray;
+            return;
+        }
+
+        var health = Math.Max(0, Math.Min(100, (int)Math.Round(estAh / nomAh * 100.0)));
+        BatteryHealthText = $"{health}%";
+
+        // Cor conforme faixas
+        if (health < 60)
+            BatteryHealthBrush = Brushes.Red;
+        else if (health < 80)
+            BatteryHealthBrush = Brushes.Gold;
+        else
+            BatteryHealthBrush = Brushes.LimeGreen;
+
+        // Detalhes: ciclos e idade
+        string ageText = "";
+        if (replacedEpoch > 0)
+        {
+            var replaced = DateTimeOffset.FromUnixTimeSeconds((long)replacedEpoch).DateTime;
+            var age = DateTime.Now - replaced;
+            var years = (int)(age.TotalDays / 365);
+            var months = (int)((age.TotalDays % 365) / 30);
+            ageText = years > 0
+                ? $", idade: {years}a {months}m"
+                : $", idade: {months}m";
+        }
+
+        BatteryHealthDetails = $"Ciclos: {cycles}{ageText}";
     }
 
     private void AddDataPoint(ObservableCollection<double> series, double value)

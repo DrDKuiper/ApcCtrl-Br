@@ -195,6 +195,7 @@
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 
                 <TextBlock Grid.Row="0" Grid.ColumnSpan="3" Text="📊 Métricas Detalhadas" 
@@ -223,6 +224,13 @@
                 <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,12">
                   <TextBlock Text="Carga" FontSize="11" Foreground="#AAAAAA"/>
                   <TextBlock Text="{Binding LoadPercent, StringFormat='{}{0}%'}" FontSize="14" Foreground="#F59E0B" FontWeight="Bold"/>
+                </StackPanel>
+
+                <!-- Saúde da Bateria -->
+                <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Margin="0,8,0,0">
+                  <TextBlock Text="Saúde da Bateria" FontSize="11" Foreground="#AAAAAA"/>
+                  <TextBlock Text="{Binding BatteryHealthText}" FontSize="14" FontWeight="SemiBold" Foreground="{Binding BatteryHealthBrush}"/>
+                  <TextBlock Text="{Binding BatteryHealthDetails}" FontSize="11" Foreground="#CCCCCC"/>
                 </StackPanel>
                 
                 <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,12">

@@ -1156,14 +1156,35 @@ struct EnergyFlowView: View {
         let status = statusData["STATUS"] ?? ""
         let isOnBatt = status.contains("ONBATT")
         let isCharging = status.contains("CHARGING")
-        let standby = Color.red.opacity(0.6)
+        
+        // Flags de alerta (já calculados na lógica principal)
         let gridAlert = (statusData["GRID_ALERT"] == "1")
         let battAlert = (statusData["BATT_ALERT"] == "1")
         let upsAlert  = (statusData["UPS_ALERT"]  == "1")
-        let gridColor = gridAlert ? .red : (isOnBatt ? standby : Color.green)
-        let battColor = battAlert ? .red : (isOnBatt ? Color.orange : standby)
-        let upsColor: Color = upsAlert ? .red : (isCharging ? .yellow : (isOnBatt ? .orange : .green))
-        let outColor: Color = isOnBatt ? .orange : .green
+
+        // Paleta unificada:
+        //  - Verde  = fluxo normal/em uso
+        //  - Amarelo = alerta (ex: carregando, modo bateria mas dentro dos limites)
+        //  - Vermelho = problema (flags de alerta ativos)
+        let normalColor: Color = .green
+        let alertColor: Color  = .yellow
+        let errorColor: Color  = .red
+
+        // Rede: vermelho se GRID_ALERT, senão sempre verde (quando presente)
+        let gridColor: Color = gridAlert ? errorColor : normalColor
+
+        // Bateria: vermelho se BATT_ALERT, amarelo se em uso (ONBATT ou CHARGING) sem erro, verde caso contrário
+        let battColor: Color = battAlert
+            ? errorColor
+            : ((isOnBatt || isCharging) ? alertColor : normalColor)
+
+        // UPS: vermelho se UPS_ALERT, amarelo se carregando ou em bateria, verde se tudo ok
+        let upsColor: Color = upsAlert
+            ? errorColor
+            : ((isCharging || isOnBatt) ? alertColor : normalColor)
+
+        // Saída para dispositivos: amarelo quando em bateria, verde quando na rede
+        let outColor: Color = isOnBatt ? alertColor : normalColor
         
         VStack(spacing: 8) {
             Text("Fluxo de Energia")
@@ -1350,6 +1371,32 @@ struct StatusView: View {
                         colorScheme: colorScheme
                     )
                 }
+
+                // Saúde da bateria
+                let health = Settings.shared.batteryNominalAh > 0 && Settings.shared.estimatedCapacityAh > 0
+                    ? max(0, min(100, Int((Settings.shared.estimatedCapacityAh / Settings.shared.batteryNominalAh) * 100)))
+                    : -1
+                if health >= 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Saúde da bateria")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(health)%")
+                                .font(.headline)
+                                .foregroundColor(healthColor(health))
+                        }
+                        if Settings.shared.cycleCount > 0 {
+                            Text("Ciclos: \(Settings.shared.cycleCount)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(cardBackground)
+                    .cornerRadius(8)
+                }
                 
                 // Voltage & Frequency
                 HStack(spacing: 16) {
@@ -1419,6 +1466,14 @@ struct StatusView: View {
             // Stop timer when view disappears
             timer?.invalidate()
             timer = nil
+        }
+    }
+
+    private func healthColor(_ health: Int) -> Color {
+        switch health {
+        case ..<60: return .red
+        case 60..<80: return .yellow
+        default: return .green
         }
     }
     
