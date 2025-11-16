@@ -62,24 +62,53 @@ public partial class EnergyFlowControl : UserControl
         var upsColor = upsAlert ? Brushes.Red : (isCharging ? Brushes.Yellow : (isOnBatt ? Brushes.Orange : Brushes.LimeGreen));
         var outColor = isOnBatt ? Brushes.Orange : Brushes.LimeGreen;
         
-        // Atualizar ícones e cores
+        // Opacidades baseadas no fluxo real
+        // Quando em bateria, "apagar" a rede; quando em rede, destacar Grid ↔ UPS
+        double gridOpacity    = isOnBatt ? 0.25 : 1.0;
+        double gridArrowOpacity = isOnBatt ? 0.25 : 1.0;
+        double battOpacity    = 1.0; // Bateria sempre relevante
+        double upsOpacity     = 1.0; // UPS sempre relevante
+        double outOpacity     = 1.0; // Dispositivos sempre relevantes
+        
+        // Se comunicação perdida, apagar quase tudo
+        bool commLost = status.Contains("COMMLOST", StringComparison.OrdinalIgnoreCase);
+        if (commLost)
+        {
+            gridOpacity = 0.15;
+            gridArrowOpacity = 0.15;
+            battOpacity = 0.15;
+            upsOpacity = 0.15;
+            outOpacity = 0.15;
+        }
+        
+        // Atualizar ícones e cores (com opacidade)
         GridIcon.Foreground = gridColor;
         GridValue.Foreground = gridColor;
         GridValue.Text = statusData.GetValueOrDefault("LINEV", "--");
+        GridIcon.Opacity = gridOpacity;
+        GridValue.Opacity = gridOpacity;
         
         BatteryIcon.Foreground = battColor;
         BatteryValue.Foreground = battColor;
         BatteryValue.Text = statusData.GetValueOrDefault("BCHARGE", "--");
+        BatteryIcon.Opacity = battOpacity;
+        BatteryValue.Opacity = battOpacity;
         
         UpsIcon.Foreground = upsColor;
         UpsLabel.Text = isCharging ? "UPS (Carregando)" : "UPS";
+        UpsIcon.Opacity = upsOpacity;
+        UpsLabel.Opacity = upsOpacity;
         
         DevicesIcon.Foreground = outColor;
         DevicesValue.Foreground = outColor;
         DevicesValue.Text = statusData.GetValueOrDefault("LOADPCT", "--");
+        DevicesIcon.Opacity = outOpacity;
+        DevicesValue.Opacity = outOpacity;
         
-        // Cor das setas
+        // Cor e opacidade das setas
         GridBatteryArrow.Foreground = isOnBatt ? battColor : gridColor;
+        GridBatteryArrow.Opacity = gridArrowOpacity;
         UpsDevicesArrow.Foreground = outColor;
+        UpsDevicesArrow.Opacity = commLost ? 0.15 : 1.0;
     }
 }

@@ -1760,8 +1760,38 @@ struct GraphsView: View {
             case .lineV:  val = String(format: "%.1f V", s.lineV ?? .nan)
             case .freq:   val = String(format: "%.1f Hz", s.freq ?? .nan)
             case .timeLeft: val = String(format: "%.0f min", s.timeLeft ?? .nan)
+                let commLost = status.contains("COMMLOST")
             case .timeLeftEst: val = String(format: "%.0f min", s.timeLeftEst ?? .nan)
             }
+                // Opacidades dinâmicas (espelha comportamento do Windows):
+                //  - Em ONBATT: rede e seta de rede ficam apagadas, resto normal
+                //  - Em COMMLOST: tudo fica bem apagado
+                let baseDimmed: Double = 0.25   // caminho “apagado”
+                let commDimmed: Double = 0.15   // tudo apagado quando COMMLOST
+                let gridOpacity: Double
+                let battOpacity: Double
+                let upsOpacity: Double
+                let outOpacity: Double
+                let gridArrowOpacity: Double
+
+                if commLost {
+                    gridOpacity = commDimmed
+                    battOpacity = commDimmed
+                    upsOpacity = commDimmed
+                    outOpacity = commDimmed
+                    gridArrowOpacity = commDimmed
+                } else {
+                    if isOnBatt {
+                        gridOpacity = baseDimmed
+                        gridArrowOpacity = baseDimmed
+                    } else {
+                        gridOpacity = 1.0
+                        gridArrowOpacity = 1.0
+                    }
+                    battOpacity = 1.0
+                    upsOpacity = 1.0
+                    outOpacity = 1.0
+                }
             return MetricTableRow(timestamp: ts, value: val)
         }
     }
@@ -1772,9 +1802,11 @@ struct GraphsView: View {
         }
         let cutoff = Date().addingTimeInterval(-range.hours * 3600)
         return store.samples.filter { $0.time >= cutoff }
-    }
+                        .frame(maxWidth: .infinity)
+                        .opacity(gridOpacity)
 }
 #endif
+                            .opacity(gridArrowOpacity)
 struct GraphsViewLegacy: View {
     @ObservedObject var store: MetricsStore
     var body: some View {
@@ -1785,7 +1817,8 @@ struct GraphsViewLegacy: View {
                 ForEach(store.samples) { s in
                     Text("\(s.time): Carga=\(s.load ?? .nan), Bateria=\(s.charge ?? .nan), V=\(s.lineV ?? .nan), Hz=\(s.freq ?? .nan)")
                         .font(.system(.caption, design: .monospaced))
-                }
+                        .frame(maxWidth: .infinity)
+                        .opacity(commLost ? commDimmed : battOpacity)
             }
         }
         .padding(12)
@@ -1795,9 +1828,11 @@ struct GraphsViewLegacy: View {
 // MARK: - Graphs Window
 final class GraphsWindowController: NSWindowController, NSWindowDelegate {
     init(store: MetricsStore) {
-        #if canImport(Charts)
+                        .frame(maxWidth: .infinity)
+                        .opacity(commLost ? commDimmed : upsOpacity)
         if #available(macOS 13.0, *) {
             let hosting = NSHostingController(rootView: GraphsView(store: store))
+                            .opacity(commLost ? commDimmed : 1.0)
             let window = NSWindow(contentViewController: hosting)
             window.title = "Gráficos"
             window.setContentSize(NSSize(width: 720, height: 520))
@@ -1808,7 +1843,8 @@ final class GraphsWindowController: NSWindowController, NSWindowDelegate {
         }
         #endif
         let hosting = NSHostingController(rootView: GraphsViewLegacy(store: store))
-        let window = NSWindow(contentViewController: hosting)
+                        .frame(maxWidth: .infinity)
+                        .opacity(commLost ? commDimmed : outOpacity)
         window.title = "Gráficos"
         window.setContentSize(NSSize(width: 720, height: 520))
         window.styleMask = [.titled, .closable, .resizable]
