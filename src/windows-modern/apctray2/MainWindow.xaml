@@ -129,11 +129,11 @@
       <!-- Fluxo de Energia (full-width) -->
       <local:EnergyFlowControl x:Name="EnergyFlow" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="8"/>
 
-      <!-- Bateria -->
+      <!-- Bateria + Saúde -->
       <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardStyle}">
         <StackPanel>
           <TextBlock Text="🔋 BATERIA" Style="{StaticResource CardTitleStyle}"/>
-          <Grid Margin="0,8,0,0">
+          <Grid Margin="0,8,0,8">
             <ProgressBar Height="24" 
                          Minimum="0" Maximum="100" 
                          Value="{Binding BatteryPercent}"
@@ -146,6 +146,14 @@
                        FontWeight="Bold"
                        Foreground="#FFFFFF"/>
           </Grid>
+          <!-- Saúde da bateria -->
+          <StackPanel Margin="0,4,0,0">
+            <TextBlock Text="Saúde da bateria" Style="{StaticResource MetricLabelStyle}"/>
+            <TextBlock Text="{Binding BatteryHealthText}" 
+                       FontSize="20" FontWeight="Bold" Foreground="#FFFFFF"/>
+            <TextBlock Text="{Binding BatteryHealthDetails}" 
+                       FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap"/>
+          </StackPanel>
         </StackPanel>
       </Border>
 

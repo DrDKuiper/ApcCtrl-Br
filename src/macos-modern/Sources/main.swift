@@ -443,13 +443,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         self.onBattStartBcharge = nil
                         self.onBattStartLoadPct = nil
                         self.onBattStartBattV = nil
+
+                        // Início de recarga pós-bateria: se ainda não está em 100%, marcar início
+                        if let ch = dict["BCHARGE"], let v = ch.split(separator: " ").first,
+                           let pct = Double(v.replacingOccurrences(of: ",", with: ".")), pct < 99.9 {
+                            Settings.shared.lastChargeStartEpoch = Date().timeIntervalSince1970
+                            Settings.shared.save()
+                        }
                     }
+                    // Após sair de bateria e começar a recarregar, acompanhar até 100%
+                    if Settings.shared.lastChargeStartEpoch > 0 {
+                        if let ch = dict["BCHARGE"], let v = ch.split(separator: " ").first,
+                           let pct = Double(v.replacingOccurrences(of: ",", with: ".")), pct >= 99.5 {
+                            let now = Date().timeIntervalSince1970
+                            let elapsed = max(0, now - Settings.shared.lastChargeStartEpoch)
+                            Settings.shared.lastFullChargeSeconds = elapsed
+                            Settings.shared.lastChargeStartEpoch = 0
+                            Settings.shared.save()
+                            let msg = "Bateria 100% carregada em \(self.formatDuration(elapsed))"
+                            self.eventsCache.append("\(self.timestamp()) \(msg)")
+                            self.postNotification(title: "APC UPS", body: msg)
+                            self.sendTelegram(body: msg)
+                        }
+                    }
+
                     let emoji = self.emojiForStatus(statusText)
                     var batteryLine = ""
                     if let start = self.onBatteryStart {
                         batteryLine = "\n🔋 Em bateria há: \(self.formatDuration(Date().timeIntervalSince(start)))"
                     } else if self.lastOnBatteryDuration > 0 {
                         batteryLine = "\n🔋 Último ciclo em bateria: \(self.formatDuration(self.lastOnBatteryDuration))"
+                        if Settings.shared.lastFullChargeSeconds > 0 {
+                            batteryLine += "\n✅ Última recarga completa: \(self.formatDuration(Settings.shared.lastFullChargeSeconds))"
+                        }
                     }
                     // Definir cor do ícone de status para alertas
                     var hasAnomaly = self.lastVoltageAlerted || self.lastFrequencyAlerted
@@ -1057,6 +1083,8 @@ final class Settings {
     private let kVoltageAlerts = "voltageAlerts"
     private let kOnBattStart = "onBattStartEpoch"
     private let kLastOnBatt = "lastOnBattSeconds"
+    private let kChargeStart = "lastChargeStartEpoch"
+    private let kLastFullCharge = "lastFullChargeSeconds"
     private let kDailyLogHour = "dailyLogHour"
     private let kUpsNominalWatts = "upsNominalWatts"
     private let kCycleCount = "cycleCount"
@@ -1082,6 +1110,9 @@ final class Settings {
     // Persisted on-battery timing
     var onBattStartEpoch: TimeInterval = 0
     var lastOnBattSeconds: TimeInterval = 0
+    // Charge tracking (from returning to line until 100%)
+    var lastChargeStartEpoch: TimeInterval = 0
+    var lastFullChargeSeconds: TimeInterval = 0
     // UPS/battery parameters
     var upsNominalWatts: Double = 600.0
     var batteryNominalVoltage: Double = 24.0
@@ -1110,6 +1141,8 @@ final class Settings {
         voltageAlertsEnabled = d.object(forKey: kVoltageAlerts) as? Bool ?? voltageAlertsEnabled
         let start = d.double(forKey: kOnBattStart); if start != 0 { onBattStartEpoch = start }
         let last = d.double(forKey: kLastOnBatt); if last != 0 { lastOnBattSeconds = last }
+        let cs = d.double(forKey: kChargeStart); if cs != 0 { lastChargeStartEpoch = cs }
+        let lf = d.double(forKey: kLastFullCharge); if lf != 0 { lastFullChargeSeconds = lf }
     let dailyHour = d.integer(forKey: kDailyLogHour); if dailyHour != 0 { dailyLogHour = dailyHour }
     let cycles = d.integer(forKey: kCycleCount); if cycles != 0 { cycleCount = cycles }
     let upsW = d.double(forKey: kUpsNominalWatts); if upsW != 0 { upsNominalWatts = upsW }
@@ -1133,8 +1166,10 @@ final class Settings {
         d.set(frequencyLow, forKey: kFreqLow)
         d.set(frequencyHigh, forKey: kFreqHigh)
         d.set(voltageAlertsEnabled, forKey: kVoltageAlerts)
-    d.set(onBattStartEpoch, forKey: kOnBattStart)
-    d.set(lastOnBattSeconds, forKey: kLastOnBatt)
+        d.set(onBattStartEpoch, forKey: kOnBattStart)
+        d.set(lastOnBattSeconds, forKey: kLastOnBatt)
+        d.set(lastChargeStartEpoch, forKey: kChargeStart)
+        d.set(lastFullChargeSeconds, forKey: kLastFullCharge)
     d.set(dailyLogHour, forKey: kDailyLogHour)
     d.set(cycleCount, forKey: kCycleCount)
     d.set(upsNominalWatts, forKey: kUpsNominalWatts)

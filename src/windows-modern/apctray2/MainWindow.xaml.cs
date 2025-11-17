@@ -40,6 +40,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _temperature = "--";
     public string Temperature { get => _temperature; set { _temperature = value; OnPropertyChanged(nameof(Temperature)); } }
 
+    // Saúde da bateria (tray principal)
+    private string _batteryHealthText = "--";
+    public string BatteryHealthText { get => _batteryHealthText; set { _batteryHealthText = value; OnPropertyChanged(nameof(BatteryHealthText)); } }
+
+    private string _batteryHealthDetails = "";
+    public string BatteryHealthDetails { get => _batteryHealthDetails; set { _batteryHealthDetails = value; OnPropertyChanged(nameof(BatteryHealthDetails)); } }
+
     private bool _isDarkMode = true;
     public bool IsDarkMode 
     { 
@@ -172,6 +179,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 Temperature = temp.Contains("C") ? temp : $"{temp} °C";
             }
+            // Atualizar saúde da bateria com base nas configurações persistidas
+            UpdateBatteryHealth();
         }
         catch (SocketException ex)
         {
@@ -284,5 +293,41 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             Temperature = temp2.Contains("C") ? temp2 : $"{temp2} °C";
         }
+
+        // Atualizar saúde da bateria baseada em capacidade estimada e nominal
+        UpdateBatteryHealth();
+    }
+
+    private void UpdateBatteryHealth()
+    {
+        var estAh = Settings.Current.EstimatedCapacityAh;
+        var nomAh = Settings.Current.BatteryNominalCapacityAh;
+        var cycles = Settings.Current.CycleCount;
+        var replacedEpoch = Settings.Current.BatteryReplacedEpoch;
+
+        if (estAh <= 0 || nomAh <= 0)
+        {
+            BatteryHealthText = "Sem dados";
+            BatteryHealthDetails = "Execute alguns ciclos completos para estimar a capacidade.";
+            return;
+        }
+
+        var health = Math.Max(0, Math.Min(100, (int)Math.Round(estAh / nomAh * 100.0)));
+        BatteryHealthText = $"{health}%";
+
+        string details = $"Ciclos: {cycles}";
+        if (replacedEpoch > 0)
+        {
+            var replaced = DateTimeOffset.FromUnixTimeSeconds((long)replacedEpoch).DateTime;
+            var age = DateTime.Now - replaced;
+            var years = (int)(age.TotalDays / 365);
+            var months = (int)((age.TotalDays % 365) / 30);
+            var ageText = years > 0
+                ? $", idade: {years}a {months}m"
+                : $", idade: {months}m";
+            details += ageText;
+        }
+
+        BatteryHealthDetails = details;
     }
 }

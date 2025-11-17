@@ -40,6 +40,8 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private TimeSpan _totalBatteryTime = TimeSpan.Zero;
     private double _lastBatteryPercent = 100;
     private DateTime? _lastChargeTime = null;
+    private bool _chargingAfterBattery = false;
+    private DateTime? _chargeStartTime = null;
 
     public ObservableCollection<string> LogEntries { get; } = new();
 
@@ -91,6 +93,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
 
     private string _chargeEstimate = "N/A";
     public string ChargeEstimate { get => _chargeEstimate; set { _chargeEstimate = value; OnPropertyChanged(nameof(ChargeEstimate)); } }
+
+    private string _lastFullChargeInfo = "";
+    public string LastFullChargeInfo { get => _lastFullChargeInfo; set { _lastFullChargeInfo = value; OnPropertyChanged(nameof(LastFullChargeInfo)); } }
 
     // Saúde da bateria
     private string _batteryHealthText = "--";
@@ -350,6 +355,8 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             {
                 // Entrou em modo bateria
                 _batteryModeStartTime = DateTime.Now;
+                _chargingAfterBattery = false;
+                _chargeStartTime = null;
                 AddLogEntry("🔋 Entrando em modo bateria");
             }
             else if (!isOnBattery && _wasOnBattery && _batteryModeStartTime.HasValue)
@@ -358,6 +365,8 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 var duration = DateTime.Now - _batteryModeStartTime.Value;
                 _totalBatteryTime += duration;
                 _batteryModeStartTime = null;
+                _chargingAfterBattery = true;
+                _chargeStartTime = DateTime.Now;
                 AddLogEntry($"🔌 Retornando ao modo rede (tempo em bateria: {duration.TotalMinutes:F1} min)");
             }
             
@@ -405,6 +414,15 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     if (currentCharge >= 99.9)
                     {
                         ChargeEstimate = "✓ Carga completa";
+                        if (_chargingAfterBattery && _chargeStartTime.HasValue)
+                        {
+                            var elapsed = DateTime.Now - _chargeStartTime.Value;
+                            var msg = $"Bateria 100% carregada em {elapsed.TotalMinutes:F1} minutos";
+                            LastFullChargeInfo = msg;
+                            AddLogEntry($"✅ {msg}");
+                            _chargingAfterBattery = false;
+                            _chargeStartTime = null;
+                        }
                     }
                     else if (!Status.Contains("ONLINE", StringComparison.OrdinalIgnoreCase))
                     {
