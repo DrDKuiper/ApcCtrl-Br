@@ -3,7 +3,7 @@ Versão atualizada para parametros e tecnologias novas do antigo apcctrl
 
 Branch do projeto apcctrl/apcupsd com foco nos nobreaks APC Brasil. Esta versão
 atualiza parâmetros e tecnologias do antigo apcctrl, com destaque para o driver
-"brazil".
+"Brasileiro".
 
 ## Modelos foco
 
