@@ -1,7 +1,7 @@
 # ApcCtrl-Br
 [![Build All](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build.yml/badge.svg)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build.yml)
 [![Build Windows](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml/badge.svg)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml)
-[![Build Linux](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml/badge.svg)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml)
+[![Build ApcCtrl-Br (Linux)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml/badge.svg?branch=main)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml)
 
 Versão atualizada para parametros e tecnologias novas do antigo apcctrl
 
