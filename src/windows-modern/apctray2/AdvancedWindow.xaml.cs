@@ -14,8 +14,8 @@ namespace apctray2;
 
 public partial class AdvancedWindow : Window, INotifyPropertyChanged
 {
-    private readonly NisClient _client;
-    private readonly DispatcherTimer _updateTimer;
+    private readonly NisClient? _client;
+    private readonly DispatcherTimer? _updateTimer;
     
     // Data series para gráficos
     private readonly ObservableCollection<double> _batteryData = new();
@@ -130,7 +130,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 try
                 {
                     SimpleLogger.Info("AdvancedWindow: Loaded handler starting");
-                    _updateTimer.Start();
+                    _updateTimer?.Start();
                     await UpdateDataAsync();
                     await LoadLogsAsync();
                     _isInitialized = true;
@@ -266,6 +266,11 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
 
     private async System.Threading.Tasks.Task UpdateDataAsync()
     {
+        if (_client == null)
+        {
+            AddLogEntry("❌ Erro em UpdateDataAsync: cliente NIS não inicializado.");
+            return;
+        }
         try
         {
             SimpleLogger.Info("AdvancedWindow.UpdateDataAsync: calling GetStatusAsync");
