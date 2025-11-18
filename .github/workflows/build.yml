@@ -1,48 +1,13 @@
-name: Build ApcCtrl-Br
+name: Build ApcCtrl-Br (All)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    secrets: inherit
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Restore apctray2
-        run: dotnet restore src/windows-modern/apctray2/apctray2.csproj
-
-      - name: Build apctray2 (Release)
-        run: dotnet build src/windows-modern/apctray2/apctray2.csproj -c Release --no-restore
-
-  build-linux:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential autoconf automake libtool pkg-config libusb-1.0-0-dev
-
-      - name: Configure
-        run: |
-          chmod +x ./configure
-          sh ./configure
-        working-directory: .
-
-      - name: Make
-        run: make -j$(nproc)
-        working-directory: .
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+    secrets: inherit

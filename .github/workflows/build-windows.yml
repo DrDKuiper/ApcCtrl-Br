@@ -1,0 +1,27 @@
+name: Build ApcCtrl-Br (Windows)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_call:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore apctray2
+        run: dotnet restore src/windows-modern/apctray2/apctray2.csproj
+
+      - name: Build apctray2 (Release)
+        run: dotnet build src/windows-modern/apctray2/apctray2.csproj -c Release --no-restore
