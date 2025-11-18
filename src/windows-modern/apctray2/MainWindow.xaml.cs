@@ -85,7 +85,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            SimpleLogger.Info("MainWindow.RefreshAsync: calling GetStatusAsync");
             var map = await _client.GetStatusAsync();
+            SimpleLogger.Info($"MainWindow.RefreshAsync: received {map.Count} keys from NIS");
             
             // Debug: mostrar chaves recebidas
             System.Diagnostics.Debug.WriteLine($"=== NIS Status Keys ({map.Count}) ===");
@@ -185,10 +187,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (SocketException ex)
         {
             Status = $"Erro de rede: {ex.Message}";
+            SimpleLogger.Error(ex, "MainWindow.RefreshAsync network error");
         }
         catch (Exception ex)
         {
             Status = $"Erro: {ex.Message}";
+            SimpleLogger.Error(ex, "MainWindow.RefreshAsync generic error");
         }
     }
 

@@ -1,0 +1,62 @@
+# Compilados C/autotools
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+*.dylib
+
+# Ferramentas de build/autoconf
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache/
+config.cache
+config.log
+config.status
+libtool
+
+# Diretórios de build gerais
+/build/
+/CMakeFiles/
+CMakeCache.txt
+
+# Saída de binários principais
+apcctrl
+apcaccess
+apctest
+
+# Arquivos temporários
+*.tmp
+*.log
+*.swp
+*~
+
+# .NET / apctray2
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# VS / VS Code
+.vs/
+.vscode/
+!/.vscode/launch.json
+
+# Configurações locais do apctray2
+# (AppData é fora do repo, mas incluímos por segurança)
+settings.json
+apctray2.log
+
+# Arquivos de pacote / releases
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# macOS Finder
+.DS_Store

@@ -26,6 +26,7 @@ public sealed class TrayIcon : IDisposable
 
     public TrayIcon()
     {
+        SimpleLogger.Info("Creating TrayIcon and main window");
         _window = new MainWindow();
 
         _icon = new TaskbarIcon { ToolTipText = "apcctrl" };
@@ -38,6 +39,7 @@ public sealed class TrayIcon : IDisposable
     menu.Items.Add(new MenuItem { Header = "📝 Eventos", Command = new RelayCommand(_ => new EventsWindow(this).Show()) });
     menu.Items.Add(new MenuItem { Header = "⚙️ Configurações", Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) });
     menu.Items.Add(new MenuItem { Header = "🔌 Detectar Nobreak (COM)", Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "📡 Selecionar Nobreak (NIS)", Command = new RelayCommand(_ => SelectUpsProfile()) });
     menu.Items.Add(new MenuItem { Header = "🛠️ Autoteste", Command = new RelayCommand(_ => _window.SelfTest_Relay()) });
     
     MenuItem autoStartItem = null!;
@@ -81,16 +83,51 @@ public sealed class TrayIcon : IDisposable
     
     private void ShowAdvancedWindow()
     {
-        if (_advancedWindow == null || !_advancedWindow.IsVisible)
+        try
         {
-            _advancedWindow = new AdvancedWindow();
-            _advancedWindow.Closed += (s, e) => _advancedWindow = null;
-            _advancedWindow.Show();
+            SimpleLogger.Info("ShowAdvancedWindow invoked");
+            if (_advancedWindow == null || !_advancedWindow.IsVisible)
+            {
+                SimpleLogger.Info("Creating new AdvancedWindow instance");
+                _advancedWindow = new AdvancedWindow();
+                _advancedWindow.Closed += (s, e) => _advancedWindow = null;
+                _advancedWindow.Show();
+            }
+            else
+            {
+                SimpleLogger.Info("Reusing existing AdvancedWindow instance");
+                _advancedWindow.Activate();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            _advancedWindow.Activate();
+            SimpleLogger.Error(ex, "Failed to show AdvancedWindow");
+            _advancedWindow = null;
+            MessageBox.Show($"Não foi possível abrir o dashboard avançado.\n\nDetalhes: {ex.Message}",
+                "apcctrl", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void SelectUpsProfile()
+    {
+        // Por enquanto, apenas permite digitar/ajustar o host NIS;
+        // no futuro, podemos listar múltiplos perfis.
+        var current = Settings.Current.Host;
+        var input = Microsoft.VisualBasic.Interaction.InputBox(
+            "Informe o host/IP do servidor NIS (apcctrl):",
+            "Selecionar Nobreak",
+            string.IsNullOrWhiteSpace(current) ? "127.0.0.1" : current);
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return;
+        }
+
+        Settings.Current.Host = input.Trim();
+        Settings.Current.Save();
+
+        // Recria o cliente NIS com o novo host
+        _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
     }
     
     public void SetStateIcon(string state)
@@ -149,7 +186,9 @@ public sealed class TrayIcon : IDisposable
     {
         try
         {
+            SimpleLogger.Info("TickAsync: calling GetStatusAsync");
             var map = await _client.GetStatusAsync();
+            SimpleLogger.Info($"TickAsync: status map received with {map.Count} keys");
             
             // Adicionar flags de anomalia
             var status = map.GetValueOrDefault("STATUS", "");
@@ -224,6 +263,7 @@ public sealed class TrayIcon : IDisposable
             _metricsStore.Append(sample);
             
             // Atualiza janela
+            SimpleLogger.Info("TickAsync: applying status map to MainWindow");
             _window.ApplyStatusMap(map);
 
             // Atualiza ícone (red tint se houver alertas)
@@ -240,6 +280,7 @@ public sealed class TrayIcon : IDisposable
             }
 
             // Eventos
+            SimpleLogger.Info("TickAsync: calling GetEventsAsync");
             var ev = await _client.GetEventsAsync();
             _eventsCache = ev;
             if (ev.Count > 0)

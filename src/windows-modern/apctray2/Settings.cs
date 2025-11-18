@@ -39,6 +39,9 @@ public sealed class Settings
     public int DailyLogHour { get; set; } = 8;
     public bool TelegramEnabled { get; set; } = false;
 
+    // UPS selection (for futuros múltiplos nobreaks / perfis)
+    public string SelectedUpsProfile { get; set; } = "default";
+
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "apctray2");
     private static readonly string FilePath = Path.Combine(Dir, "settings.json");
 

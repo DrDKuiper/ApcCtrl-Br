@@ -12,6 +12,8 @@ public partial class App : Application
 	{
 		base.OnStartup(e);
 
+		SimpleLogger.Info("apctray2 starting up");
+
 		// Keep app alive without windows
 		ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -41,6 +43,7 @@ public partial class App : Application
 
 	protected override void OnExit(ExitEventArgs e)
 	{
+		SimpleLogger.Info("apctray2 shutting down");
 		_tray?.Dispose();
 		base.OnExit(e);
 	}

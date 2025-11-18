@@ -107,24 +107,50 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private Brush _batteryHealthBrush = Brushes.White;
     public Brush BatteryHealthBrush { get => _batteryHealthBrush; set { _batteryHealthBrush = value; OnPropertyChanged(nameof(BatteryHealthBrush)); } }
 
+    // Flag para evitar handlers rodando durante a fase de construção
+    private bool _isInitialized = false;
+
     public AdvancedWindow()
     {
-        _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
-        InitializeComponent();
-        DataContext = this;
-        
-        SetupCharts();
-        
-        _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _updateTimer.Tick += async (s, e) => await UpdateDataAsync();
-        
-        // Adiar carregamento de dados para depois da janela abrir
-        Loaded += async (s, e) =>
+        try
         {
-            _updateTimer.Start();
-            await UpdateDataAsync();
-            await LoadLogsAsync();
-        };
+            SimpleLogger.Info("AdvancedWindow: constructor start");
+            _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
+            InitializeComponent();
+            DataContext = this;
+
+            SetupCharts();
+
+            _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _updateTimer.Tick += async (s, e) => await UpdateDataAsync();
+
+            // Adiar carregamento de dados para depois da janela abrir
+            Loaded += async (s, e) =>
+            {
+                try
+                {
+                    SimpleLogger.Info("AdvancedWindow: Loaded handler starting");
+                    _updateTimer.Start();
+                    await UpdateDataAsync();
+                    await LoadLogsAsync();
+                    _isInitialized = true;
+                    SimpleLogger.Info("AdvancedWindow: Loaded handler finished initial data load");
+                }
+                catch (Exception ex)
+                {
+                    _updateTimer.Stop();
+                    SimpleLogger.Error(ex, "AdvancedWindow: error during Loaded handler");
+                    MessageBox.Show($"Erro ao carregar dados do nobreak.\n\nDetalhes: {ex.Message}",
+                        "apcctrl - Dashboard Avançado", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            SimpleLogger.Error(ex, "AdvancedWindow: constructor failed");
+            MessageBox.Show($"Não foi possível inicializar o dashboard avançado.\n\nDetalhes: {ex.Message}",
+                "apcctrl - Dashboard Avançado", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void SetupCharts()
@@ -242,7 +268,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            SimpleLogger.Info("AdvancedWindow.UpdateDataAsync: calling GetStatusAsync");
             var map = await _client.GetStatusAsync();
+            SimpleLogger.Info($"AdvancedWindow.UpdateDataAsync: received {map.Count} keys from NIS");
             
             if (map.TryGetValue("UPSNAME", out var name)) UpsName = name;
             if (map.TryGetValue("STATUS", out var st)) Status = st;
@@ -433,7 +461,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            AddLogEntry($"❌ Erro: {ex.Message}");
+            // Nunca derrubar a UI por erro de NIS; registrar com stack trace.
+            AddLogEntry($"❌ Erro em UpdateDataAsync: {ex}");
+            SimpleLogger.Error(ex, "AdvancedWindow.UpdateDataAsync error");
         }
     }
 
@@ -503,7 +533,10 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     
     private void RangeComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (RangeComboBox == null) return;
+        // Durante InitializeComponent/Loaded, o ComboBox dispara SelectionChanged antes
+        // de todos os controles estarem prontos; ignorar esses eventos iniciais.
+        if (!_isInitialized || RangeComboBox == null || StartDatePicker == null || EndDatePicker == null || DateSeparator == null)
+            return;
         
         switch (RangeComboBox.SelectedIndex)
         {
@@ -567,7 +600,8 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            AddLogEntry($"❌ Erro ao carregar logs: {ex.Message}");
+            AddLogEntry($"❌ Erro ao carregar logs: {ex}");
+            SimpleLogger.Error(ex, "AdvancedWindow.LoadLogsAsync error");
         }
     }
 
