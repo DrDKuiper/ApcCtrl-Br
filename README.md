@@ -1,9 +1,9 @@
 # ApcCtrl-Br
 [![Build All](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build.yml/badge.svg)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build.yml)
-[![Build Windows](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml/badge.svg)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml)
+[![Build ApcCtrl-Br (Windows)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml/badge.svg?branch=main)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-windows.yml)
 [![Build ApcCtrl-Br (Linux)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml/badge.svg?branch=main)](https://github.com/DrDKuiper/ApcCtrl-Br/actions/workflows/build-linux.yml)
 
-Versão atualizada para parametros e tecnologias novas do antigo apcctrl
+Versão atualizada para parametros e tecnologias novas do antigo apcctrl para Nobreaks
 
 Branch do projeto apcctrl/apcupsd com foco nos nobreaks APC Brasil. Esta versão
 atualiza parâmetros e tecnologias do antigo apcctrl, com destaque para o driver
