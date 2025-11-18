@@ -13,12 +13,38 @@ atualiza parâmetros e tecnologias do antigo apcctrl, com destaque para o driver
 
 Consulte `README.txt` para lista completa e detalhes.
 
-## Executáveis
-
+## Executáveis principais
 
 - `apcctrl`: daemon de monitoramento/ações
 - `apcaccess`: consulta parâmetros
 - `apctest`: testes de comunicação
+
+## Interfaces modernas (Windows e macOS)
+
+O projeto inclui front‑ends modernos para monitoramento em tempo real, além dos
+executáveis clássicos:
+
+- **Windows (WPF)** – pasta `src/windows-modern/apctray2/`
+	- Tray moderno com cards de bateria, carga, tensão, temperatura e fluxo de energia.
+	- **Saúde da bateria**: estima a capacidade em Ah em relação à nominal e exibe
+		um percentual de "health" (verde/amarelo/vermelho) com detalhes de ciclos e idade.
+	- **Ciclos e recarga completa**: registra quando o nobreak entra em bateria,
+		quanto tempo ficou em bateria e quanto tempo levou para recarregar até 100%
+		após voltar para a rede (status mostrado na janela avançada).
+
+- **macOS (SwiftUI + AppKit)** – pasta `src/macos-modern/`
+	- Ícone na barra de menus com tooltip detalhado de status (status, bateria,
+		tempo em bateria, etc.).
+	- Janela de status em SwiftUI com cards de bateria, carga, ciclos, capacidade
+		estimada e diagrama de fluxo de energia.
+	- **Ciclos de bateria**: conta automaticamente cada transição para `ONBATT`
+		e exibe o último ciclo em bateria.
+	- **Recarga pós‑bateria**: ao sair de bateria e voltar para a rede, acompanha
+		a recarga até ~100% de `BCHARGE`, registra o tempo gasto e mostra no tooltip
+		como "Última recarga completa".
+	- **Notificações/Telegram**: integra com `UserNotifications` e Telegram
+		(bot/Chat ID configuráveis na UI) para enviar alertas de eventos, incluindo
+		aviso quando a bateria volta a 100% após um ciclo em bateria.
 
 ## Build rápido (Linux/macOS)
 
