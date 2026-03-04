@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("apctray2")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c5039ad9eb69a1f170b65a757184eddf3ba62ec5")]
 [assembly: System.Reflection.AssemblyProductAttribute("apctray2")]
 [assembly: System.Reflection.AssemblyTitleAttribute("apctray2")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

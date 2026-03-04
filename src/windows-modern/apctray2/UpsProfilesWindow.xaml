@@ -1,0 +1,147 @@
+﻿<Window x:Class="apctray2.UpsProfilesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gerenciar Nobreaks" Height="520" Width="720"
+        MinHeight="420" MinWidth="620"
+        WindowStartupLocation="CenterScreen"
+        Background="Transparent"
+        AllowsTransparency="True"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
+        FontFamily="{StaticResource AppFont}">
+
+  <Border Background="{StaticResource BgBaseBrush}" 
+          CornerRadius="12" 
+          BorderBrush="{StaticResource BorderSubtleBrush}" 
+          BorderThickness="1">
+    <Border.Effect>
+      <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="3" Opacity="0.5" BlurRadius="16"/>
+    </Border.Effect>
+    
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="40"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+
+      <!-- Title Bar -->
+      <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+        <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+          <Ellipse Width="8" Height="8" Fill="{StaticResource AmberBrush}" Margin="0,0,8,0"/>
+          <TextBlock Text="Gerenciar Nobreaks" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
+          <Button Content="&#x2500;" Style="{StaticResource TitleBarButton}" Click="Minimize_Click" FontFamily="Segoe UI" FontSize="14"/>
+          <Button Content="&#x2715;" Style="{StaticResource CloseButton}" Click="CloseWindow_Click" FontFamily="Segoe UI" FontSize="12" Margin="4,0,0,0"/>
+        </StackPanel>
+      </Grid>
+
+      <!-- Content -->
+      <Grid Grid.Row="1" Margin="16,4,16,16">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Perfis de Nobreaks (Servidores NIS)" 
+                   FontSize="16" FontWeight="Bold" 
+                   Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+
+        <Grid Grid.Row="1">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="280"/>
+          </Grid.ColumnDefinitions>
+
+          <!-- Profiles List -->
+          <Border CornerRadius="8" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" Background="{StaticResource BgCardBrush}" ClipToBounds="True">
+            <ListView x:Name="ProfilesList" 
+                      SelectionMode="Single"
+                      Background="Transparent"
+                      BorderThickness="0"
+                      SelectionChanged="ProfilesList_SelectionChanged">
+              <ListView.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="8,6">
+                    <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                      <TextBlock Text="{Binding Host}" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,4,0"/>
+                      <TextBlock Text=":" Foreground="{StaticResource TextMutedBrush}"/>
+                      <TextBlock Text="{Binding Port}" Foreground="{StaticResource TextSecondaryBrush}" Margin="4,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Description}" 
+                               Foreground="{StaticResource TextMutedBrush}" 
+                               FontSize="11" 
+                               Margin="0,2,0,0"
+                               TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListView.ItemTemplate>
+            </ListView>
+          </Border>
+
+          <!-- Actions Panel -->
+          <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="0">
+            <StackPanel>
+              <TextBlock Text="Ações" FontWeight="Bold" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+
+              <Button Content="+ Adicionar Novo" 
+                      Click="Add_Click" 
+                      Margin="0,0,0,8"
+                      Height="34"
+                      Style="{StaticResource SuccessButton}"/>
+
+              <Button x:Name="EditButton"
+                      Content="&#x270F; Editar" 
+                      Click="Edit_Click" 
+                      Margin="0,0,0,8"
+                      Height="34"
+                      Style="{StaticResource AccentButton}"
+                      IsEnabled="False"/>
+
+              <Button x:Name="DeleteButton"
+                      Content="&#x2717; Remover" 
+                      Click="Delete_Click" 
+                      Margin="0,0,0,8"
+                      Height="34"
+                      Style="{StaticResource DangerButton}"
+                      IsEnabled="False"/>
+
+              <Separator Margin="0,8"/>
+
+              <Button x:Name="ActivateButton"
+                      Content="&#x2713; Ativar Este" 
+                      Click="Activate_Click" 
+                      Margin="0,0,0,8"
+                      Height="34"
+                      Style="{StaticResource SuccessButton}"
+                      IsEnabled="False"/>
+
+              <Button x:Name="TestButton"
+                      Content="&#x25B6; Testar Conexão" 
+                      Click="Test_Click" 
+                      Margin="0,0,0,8"
+                      Height="34"
+                      Style="{StaticResource WarningButton}"
+                      IsEnabled="False"/>
+
+              <TextBlock x:Name="StatusText" 
+                         Text="" 
+                         TextWrapping="Wrap" 
+                         Foreground="{StaticResource TextSecondaryBrush}" 
+                         FontSize="11"
+                         Margin="0,8,0,0"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- Bottom Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+          <Button Content="Fechar" IsCancel="True" Style="{StaticResource ModernButton}"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

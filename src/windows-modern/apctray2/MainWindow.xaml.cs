@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Net.Sockets;
 using System.Text;
@@ -8,7 +9,31 @@ namespace apctray2;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private readonly NisClient _client = new("127.0.0.1", 3551);
+    private NisClient _client;
+    private bool _isUpdatingProfileSelection;
+
+    public ObservableCollection<UpsProfile> AvailableProfiles { get; } = new();
+
+    private UpsProfile? _selectedProfile;
+    public UpsProfile? SelectedProfile
+    {
+        get => _selectedProfile;
+        set
+        {
+            _selectedProfile = value;
+            OnPropertyChanged(nameof(SelectedProfile));
+
+            if (_isUpdatingProfileSelection || value == null)
+                return;
+
+            Settings.Current.ProfileManager.SetActiveProfile(value.Id);
+            Settings.Current.Host = value.Host;
+            Settings.Current.Port = value.Port;
+            Settings.Current.Save();
+            TrayIcon.Current?.RefreshClientFromSettings();
+            _ = RefreshAsync();
+        }
+    }
 
     private string _upsName = "<unknown>";
     public string UpsName { get => _upsName; set { _upsName = value; OnPropertyChanged(nameof(UpsName)); } }
@@ -61,24 +86,47 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public MainWindow()
     {
+        var active = Settings.Current.ProfileManager.GetActiveProfile();
+        _client = active != null
+            ? new NisClient(active.Host, active.Port)
+            : new NisClient(Settings.Current.Host, Settings.Current.Port);
+
         InitializeComponent();
         DataContext = this;
+        ReloadProfiles();
         ApplyTheme();
         _ = RefreshAsync();
     }
 
-    private void ApplyTheme()
+    public void ReloadProfiles()
     {
-        if (IsDarkMode)
+        _isUpdatingProfileSelection = true;
+        AvailableProfiles.Clear();
+
+        foreach (var profile in Settings.Current.ProfileManager.Profiles)
+            AvailableProfiles.Add(profile);
+
+        SelectedProfile = Settings.Current.ProfileManager.GetActiveProfile();
+        _isUpdatingProfileSelection = false;
+    }
+
+    public void RefreshClientFromSettings()
+    {
+        var active = Settings.Current.ProfileManager.GetActiveProfile();
+        if (active != null)
         {
-            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 30, 30));
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+            _client = new NisClient(active.Host, active.Port);
         }
         else
         {
-            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Black);
+            _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
         }
+    }
+
+    private void ApplyTheme()
+    {
+        // Theme is now fully managed by DarkTheme.xaml resource dictionary
+        // The window Background is set to Transparent for the rounded border effect
     }
 
     private async System.Threading.Tasks.Task RefreshAsync()
@@ -211,7 +259,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Close_Click(object sender, RoutedEventArgs e)
     {
-        Close();
+        Hide();
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+        else
+        {
+            DragMove();
+        }
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -227,8 +292,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             TimeLeft = tl.Contains(" ") ? tl.Split(' ')[0] : tl;
         }
         
-        // Atualizar EnergyFlowControl
-        EnergyFlow?.UpdateStatus(map);
+        // Atualizar EnergyFlowControl apenas se já foi inicializado
+        if (EnergyFlow != null)
+        {
+            try
+            {
+                EnergyFlow.UpdateStatus(map);
+            }
+            catch (Exception ex)
+            {
+                SimpleLogger.Error(ex, "Error updating EnergyFlow control");
+            }
+        }
         
         if (map.TryGetValue("BCHARGE", out var bc))
         {

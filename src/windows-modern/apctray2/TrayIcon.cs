@@ -13,7 +13,7 @@ public sealed class TrayIcon : IDisposable
 {
     public static TrayIcon? Current { get; set; }
     private readonly TaskbarIcon _icon;
-    private readonly MainWindow _window;
+    private MainWindow _window;
     private NisClient _client = new(Settings.Current.Host, Settings.Current.Port);
     private readonly DispatcherTimer _timer;
     private string _lastEventLine = string.Empty;
@@ -34,29 +34,29 @@ public sealed class TrayIcon : IDisposable
         TrySetIconFromAssets("online");
 
     var menu = new ContextMenu();
-    menu.Items.Add(new MenuItem { Header = "🔍 Status", Command = new RelayCommand(_ => _window.Show()) });
-    menu.Items.Add(new MenuItem { Header = "📊 Dashboard Avançado", Command = new RelayCommand(_ => ShowAdvancedWindow()) });
-    menu.Items.Add(new MenuItem { Header = "📝 Eventos", Command = new RelayCommand(_ => new EventsWindow(this).Show()) });
-    menu.Items.Add(new MenuItem { Header = "⚙️ Configurações", Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) });
-    menu.Items.Add(new MenuItem { Header = "🔌 Detectar Nobreak (COM)", Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) });
-    menu.Items.Add(new MenuItem { Header = "📡 Selecionar Nobreak (NIS)", Command = new RelayCommand(_ => SelectUpsProfile()) });
-    menu.Items.Add(new MenuItem { Header = "🛠️ Autoteste", Command = new RelayCommand(_ => _window.SelfTest_Relay()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Status", Command = new RelayCommand(_ => ShowStatusWindow()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Dashboard Avançado", Command = new RelayCommand(_ => ShowAdvancedWindow()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Eventos", Command = new RelayCommand(_ => new EventsWindow(this).Show()) });
+    menu.Items.Add(new MenuItem { Header = "⚙ Configurações", Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Detectar Nobreak (COM)", Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Gerenciar Nobreaks (NIS)", Command = new RelayCommand(_ => new UpsProfilesWindow(this).ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "▶ Autoteste", Command = new RelayCommand(_ => _window.SelfTest_Relay()) });
     
     MenuItem autoStartItem = null!;
     autoStartItem = new MenuItem 
     { 
-        Header = "🚀 " + (AutoStartManager.IsEnabled() ? "✓" : "") + " Iniciar com o Windows",
+        Header = "▶ " + (AutoStartManager.IsEnabled() ? "✓ " : "") + "Iniciar com o Windows",
         Command = new RelayCommand(_ => 
         {
             if (AutoStartManager.IsEnabled())
             {
                 AutoStartManager.Disable();
-                autoStartItem.Header = "🚀 Iniciar com o Windows";
+                autoStartItem.Header = "▶ Iniciar com o Windows";
             }
             else
             {
                 AutoStartManager.Enable();
-                autoStartItem.Header = "🚀 ✓ Iniciar com o Windows";
+                autoStartItem.Header = "▶ ✓ Iniciar com o Windows";
             }
         })
     };
@@ -66,7 +66,7 @@ public sealed class TrayIcon : IDisposable
     menu.Items.Add(new MenuItem { Header = "Sair", Command = new RelayCommand(_ => Application.Current.Shutdown()) });
         _icon.ContextMenu = menu;
 
-        _icon.TrayMouseDoubleClick += (s, e) => _window.Show();
+        _icon.TrayMouseDoubleClick += (s, e) => ShowStatusWindow();
 
         // Polling de status/eventos
     _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(1, Settings.Current.RefreshSeconds)) };
@@ -77,6 +77,56 @@ public sealed class TrayIcon : IDisposable
         _dailyLogTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
         _dailyLogTimer.Tick += (s, e) => CheckAndSendDailyLog();
         _dailyLogTimer.Start();
+        
+        // Sincronizar com o perfil ativo
+        RefreshClientFromSettings();
+    }
+    
+    public void RefreshClientFromSettings()
+    {
+        var activeProfile = Settings.Current.ProfileManager.GetActiveProfile();
+        if (activeProfile != null)
+        {
+            _client = new NisClient(activeProfile.Host, activeProfile.Port);
+            Settings.Current.Host = activeProfile.Host;
+            Settings.Current.Port = activeProfile.Port;
+            SimpleLogger.Info($"Cliente NIS atualizado para: {activeProfile.Name} ({activeProfile.Host}:{activeProfile.Port})");
+        }
+        else
+        {
+            // Fallback para configurações legadas
+            _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
+            SimpleLogger.Info($"Cliente NIS usando config legado: {Settings.Current.Host}:{Settings.Current.Port}");
+        }
+
+        _window.RefreshClientFromSettings();
+        _window.ReloadProfiles();
+        _advancedWindow?.RefreshClientFromSettings();
+        _timer.Interval = TimeSpan.FromSeconds(Math.Max(1, Settings.Current.RefreshSeconds));
+        _ = TickAsync();
+    }
+
+    private void ShowStatusWindow()
+    {
+        try
+        {
+            _window.ReloadProfiles();
+            _window.RefreshClientFromSettings();
+
+            if (!_window.IsVisible)
+                _window.Show();
+
+            if (_window.WindowState == WindowState.Minimized)
+                _window.WindowState = WindowState.Normal;
+
+            _window.Activate();
+        }
+        catch (InvalidOperationException)
+        {
+            _window = new MainWindow();
+            _window.Show();
+            _window.Activate();
+        }
     }
 
     private AdvancedWindow? _advancedWindow = null;
@@ -106,28 +156,6 @@ public sealed class TrayIcon : IDisposable
             MessageBox.Show($"Não foi possível abrir o dashboard avançado.\n\nDetalhes: {ex.Message}",
                 "apcctrl", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-    }
-
-    private void SelectUpsProfile()
-    {
-        // Por enquanto, apenas permite digitar/ajustar o host NIS;
-        // no futuro, podemos listar múltiplos perfis.
-        var current = Settings.Current.Host;
-        var input = Microsoft.VisualBasic.Interaction.InputBox(
-            "Informe o host/IP do servidor NIS (apcctrl):",
-            "Selecionar Nobreak",
-            string.IsNullOrWhiteSpace(current) ? "127.0.0.1" : current);
-
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return;
-        }
-
-        Settings.Current.Host = input.Trim();
-        Settings.Current.Save();
-
-        // Recria o cliente NIS com o novo host
-        _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
     }
     
     public void SetStateIcon(string state)
@@ -311,12 +339,6 @@ public sealed class TrayIcon : IDisposable
     public void ShowEventBalloon(string text)
     {
         _icon.ShowBalloonTip("APC UPS", text, BalloonIcon.Info);
-    }
-
-    public void RefreshClientFromSettings()
-    {
-        _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
-        _timer.Interval = TimeSpan.FromSeconds(Math.Max(1, Settings.Current.RefreshSeconds));
     }
     
     private void CheckAndSendDailyLog()

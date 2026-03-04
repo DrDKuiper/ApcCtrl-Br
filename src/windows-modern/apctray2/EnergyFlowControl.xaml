@@ -1,22 +1,22 @@
-<UserControl x:Class="apctray2.EnergyFlowControl"
+﻿<UserControl x:Class="apctray2.EnergyFlowControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d" 
              d:DesignHeight="220" d:DesignWidth="500"
-             Background="#0C0D17">
-    <Border CornerRadius="8" Padding="16" Background="#0C0D17">
+             Background="{StaticResource BgDeepBrush}">
+    <Border CornerRadius="10" Padding="16" Background="{StaticResource BgDeepBrush}">
         <StackPanel>
-            <!-- Título -->
+            <!-- Title -->
             <TextBlock Text="Fluxo de Energia" 
-                       FontSize="16" 
+                       FontSize="14" 
                        FontWeight="SemiBold" 
-                       Foreground="#9CA3AF" 
+                       Foreground="{StaticResource TextSecondaryBrush}" 
                        HorizontalAlignment="Center" 
                        Margin="0,0,0,12"/>
             
-            <!-- Linha Superior: Grid <-> Bateria -->
+            <!-- Top Row: Grid to Battery -->
             <Grid Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -24,28 +24,30 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 
-                <!-- Grid (Rede) -->
+                <!-- Grid (Mains) -->
                 <StackPanel Grid.Column="0" HorizontalAlignment="Center">
                     <TextBlock x:Name="GridIcon" 
-                               Text="🔌" 
+                               Text="&#x1F50C;" 
                                FontSize="36" 
                                HorizontalAlignment="Center"/>
                     <TextBlock Text="Rede" 
                                FontSize="11" 
-                               Foreground="#9CA3AF" 
+                               Foreground="{StaticResource TextSecondaryBrush}" 
                                HorizontalAlignment="Center"/>
                     <TextBlock x:Name="GridValue" 
                                Text="--" 
                                FontSize="10" 
+                               Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center"
                                Margin="0,2,0,0"/>
                 </StackPanel>
                 
-                <!-- Seta animada Grid <-> Bateria -->
+                <!-- Animated Arrow -->
                 <TextBlock x:Name="GridBatteryArrow" 
                            Grid.Column="1" 
-                           Text="⚡" 
+                           Text="&#x26A1;" 
                            FontSize="24" 
+                           Foreground="{StaticResource AmberBrush}"
                            VerticalAlignment="Center"
                            Margin="12,0">
                     <TextBlock.RenderTransform>
@@ -53,25 +55,26 @@
                     </TextBlock.RenderTransform>
                 </TextBlock>
                 
-                <!-- Bateria -->
+                <!-- Battery -->
                 <StackPanel Grid.Column="2" HorizontalAlignment="Center">
                     <TextBlock x:Name="BatteryIcon" 
-                               Text="🔋" 
+                               Text="&#x1F50B;" 
                                FontSize="36" 
                                HorizontalAlignment="Center"/>
                     <TextBlock Text="Bateria" 
                                FontSize="11" 
-                               Foreground="#9CA3AF" 
+                               Foreground="{StaticResource TextSecondaryBrush}" 
                                HorizontalAlignment="Center"/>
                     <TextBlock x:Name="BatteryValue" 
                                Text="--" 
                                FontSize="10" 
+                               Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center"
                                Margin="0,2,0,0"/>
                 </StackPanel>
             </Grid>
             
-            <!-- Linha Inferior: UPS <-> Dispositivos -->
+            <!-- Bottom Row: UPS to Devices -->
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -82,21 +85,23 @@
                 <!-- UPS -->
                 <StackPanel Grid.Column="0" HorizontalAlignment="Center">
                     <TextBlock x:Name="UpsIcon" 
-                               Text="⚡" 
+                               Text="&#x26A1;" 
                                FontSize="36" 
+                               Foreground="{StaticResource AccentBrush}"
                                HorizontalAlignment="Center"/>
                     <TextBlock x:Name="UpsLabel" 
                                Text="UPS" 
                                FontSize="11" 
-                               Foreground="#9CA3AF" 
+                               Foreground="{StaticResource TextSecondaryBrush}" 
                                HorizontalAlignment="Center"/>
                 </StackPanel>
                 
-                <!-- Seta animada UPS -> Dispositivos -->
+                <!-- Arrow UPS to Devices -->
                 <TextBlock x:Name="UpsDevicesArrow" 
                            Grid.Column="1" 
-                           Text="→" 
+                           Text="&#x2192;" 
                            FontSize="24" 
+                           Foreground="{StaticResource GreenBrush}"
                            VerticalAlignment="Center"
                            Margin="12,0">
                     <TextBlock.RenderTransform>
@@ -104,19 +109,20 @@
                     </TextBlock.RenderTransform>
                 </TextBlock>
                 
-                <!-- Dispositivos -->
+                <!-- Devices -->
                 <StackPanel Grid.Column="2" HorizontalAlignment="Center">
                     <TextBlock x:Name="DevicesIcon" 
-                               Text="💻" 
+                               Text="&#x1F4BB;" 
                                FontSize="36" 
                                HorizontalAlignment="Center"/>
                     <TextBlock Text="Dispositivos" 
                                FontSize="11" 
-                               Foreground="#9CA3AF" 
+                               Foreground="{StaticResource TextSecondaryBrush}" 
                                HorizontalAlignment="Center"/>
                     <TextBlock x:Name="DevicesValue" 
                                Text="--" 
                                FontSize="10" 
+                               Foreground="{StaticResource TextMutedBrush}"
                                HorizontalAlignment="Center"
                                Margin="0,2,0,0"/>
                 </StackPanel>

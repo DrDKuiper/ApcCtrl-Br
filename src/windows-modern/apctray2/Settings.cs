@@ -41,6 +41,9 @@ public sealed class Settings
 
     // UPS selection (for futuros múltiplos nobreaks / perfis)
     public string SelectedUpsProfile { get; set; } = "default";
+    
+    // Gerenciador de múltiplos perfis de UPS
+    public UpsProfileManager ProfileManager { get; set; } = new();
 
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "apctray2");
     private static readonly string FilePath = Path.Combine(Dir, "settings.json");
@@ -62,12 +65,23 @@ public sealed class Settings
                 var s = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
                 if (!string.IsNullOrWhiteSpace(envHost)) s.Host = envHost!;
                 if (int.TryParse(envPort, out var p)) s.Port = p;
+                
+                // Garantir que há pelo menos um perfil
+                s.ProfileManager.EnsureDefaultProfile();
+                
+                // Se não há perfil ativo, criar um baseado em Host/Port legados
+                if (s.ProfileManager.GetActiveProfile() == null && s.ProfileManager.Profiles.Count > 0)
+                {
+                    s.ProfileManager.ActiveProfileId = s.ProfileManager.Profiles[0].Id;
+                }
+                
                 return s;
             }
 
             var def = new Settings();
             if (!string.IsNullOrWhiteSpace(envHost)) def.Host = envHost!;
             if (int.TryParse(envPort, out var ep)) def.Port = ep;
+            def.ProfileManager.EnsureDefaultProfile();
             return def;
         }
         catch

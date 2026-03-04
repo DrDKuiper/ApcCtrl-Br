@@ -46,4 +46,16 @@ public partial class PortDetectWindow : Window
         Clipboard.SetText(sel.Port);
         MessageBox.Show($"Copiado: {sel.Port}. Use este valor como DEVICE no apcctrl.conf.");
     }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        else
+            DragMove();
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }

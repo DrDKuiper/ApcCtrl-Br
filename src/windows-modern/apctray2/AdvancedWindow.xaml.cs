@@ -14,7 +14,7 @@ namespace apctray2;
 
 public partial class AdvancedWindow : Window, INotifyPropertyChanged
 {
-    private readonly NisClient? _client;
+    private NisClient? _client;
     private readonly DispatcherTimer? _updateTimer;
     
     // Data series para gráficos
@@ -57,9 +57,22 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         {
             _status = value;
             OnPropertyChanged(nameof(Status));
+            StatusFriendly = GetFriendlyStatus(value);
+            PowerSourceText = value.Contains("ONBATT", StringComparison.OrdinalIgnoreCase) ? "Bateria" :
+                value.Contains("ONLINE", StringComparison.OrdinalIgnoreCase) ? "Rede elétrica" :
+                value.Contains("COMMLOST", StringComparison.OrdinalIgnoreCase) ? "Sem comunicação" : "Indeterminado";
             UpdateModeIndicator();
         }
     }
+
+    private string _statusFriendly = "Iniciando...";
+    public string StatusFriendly { get => _statusFriendly; set { _statusFriendly = value; OnPropertyChanged(nameof(StatusFriendly)); } }
+
+    private string _powerSourceText = "Indeterminado";
+    public string PowerSourceText { get => _powerSourceText; set { _powerSourceText = value; OnPropertyChanged(nameof(PowerSourceText)); } }
+
+    private string _lastUpdateText = "--:--:--";
+    public string LastUpdateText { get => _lastUpdateText; set { _lastUpdateText = value; OnPropertyChanged(nameof(LastUpdateText)); } }
 
     private string _timeLeft = "--";
     public string TimeLeft { get => _timeLeft; set { _timeLeft = value; OnPropertyChanged(nameof(TimeLeft)); } }
@@ -88,14 +101,35 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private string _voltageStatus = "";
     public string VoltageStatus { get => _voltageStatus; set { _voltageStatus = value; OnPropertyChanged(nameof(VoltageStatus)); } }
 
+    private Brush _voltageStatusBrush = Brushes.White;
+    public Brush VoltageStatusBrush { get => _voltageStatusBrush; set { _voltageStatusBrush = value; OnPropertyChanged(nameof(VoltageStatusBrush)); } }
+
     private string _batteryTimeInfo = "N/A";
     public string BatteryTimeInfo { get => _batteryTimeInfo; set { _batteryTimeInfo = value; OnPropertyChanged(nameof(BatteryTimeInfo)); } }
 
     private string _chargeEstimate = "N/A";
     public string ChargeEstimate { get => _chargeEstimate; set { _chargeEstimate = value; OnPropertyChanged(nameof(ChargeEstimate)); } }
 
-    private string _lastFullChargeInfo = "";
+    private string _chargeRateText = "Taxa de recarga: --";
+    public string ChargeRateText { get => _chargeRateText; set { _chargeRateText = value; OnPropertyChanged(nameof(ChargeRateText)); } }
+
+    private string _lastFullChargeInfo = "Aguardando ciclo completo";
     public string LastFullChargeInfo { get => _lastFullChargeInfo; set { _lastFullChargeInfo = value; OnPropertyChanged(nameof(LastFullChargeInfo)); } }
+
+    private string _nominalPowerText = "--";
+    public string NominalPowerText { get => _nominalPowerText; set { _nominalPowerText = value; OnPropertyChanged(nameof(NominalPowerText)); } }
+
+    private string _voltageRangeText = $"{MinVoltage:F0}V - {MaxVoltage:F0}V";
+    public string VoltageRangeText { get => _voltageRangeText; set { _voltageRangeText = value; OnPropertyChanged(nameof(VoltageRangeText)); } }
+
+    private string _modelAndSerial = "--";
+    public string ModelAndSerial { get => _modelAndSerial; set { _modelAndSerial = value; OnPropertyChanged(nameof(ModelAndSerial)); } }
+
+    private string _firmwareVersion = "--";
+    public string FirmwareVersion { get => _firmwareVersion; set { _firmwareVersion = value; OnPropertyChanged(nameof(FirmwareVersion)); } }
+
+    private string _nisEndpoint = "--";
+    public string NisEndpoint { get => _nisEndpoint; set { _nisEndpoint = value; OnPropertyChanged(nameof(NisEndpoint)); } }
 
     // Saúde da bateria
     private string _batteryHealthText = "--";
@@ -115,7 +149,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         try
         {
             SimpleLogger.Info("AdvancedWindow: constructor start");
-            _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
+            RefreshClientFromSettings();
             InitializeComponent();
             DataContext = this;
 
@@ -150,6 +184,21 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             SimpleLogger.Error(ex, "AdvancedWindow: constructor failed");
             MessageBox.Show($"Não foi possível inicializar o dashboard avançado.\n\nDetalhes: {ex.Message}",
                 "apcctrl - Dashboard Avançado", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    public void RefreshClientFromSettings()
+    {
+        var active = Settings.Current.ProfileManager.GetActiveProfile();
+        if (active != null)
+        {
+            _client = new NisClient(active.Host, active.Port);
+            NisEndpoint = $"{active.Host}:{active.Port}";
+        }
+        else
+        {
+            _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
+            NisEndpoint = $"{Settings.Current.Host}:{Settings.Current.Port}";
         }
     }
 
@@ -276,9 +325,25 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             SimpleLogger.Info("AdvancedWindow.UpdateDataAsync: calling GetStatusAsync");
             var map = await _client.GetStatusAsync();
             SimpleLogger.Info($"AdvancedWindow.UpdateDataAsync: received {map.Count} keys from NIS");
+            LastUpdateText = DateTime.Now.ToString("HH:mm:ss");
             
             if (map.TryGetValue("UPSNAME", out var name)) UpsName = name;
             if (map.TryGetValue("STATUS", out var st)) Status = st;
+            if (map.TryGetValue("MODEL", out var model))
+            {
+                if (map.TryGetValue("SERIALNO", out var serial) && !string.IsNullOrWhiteSpace(serial))
+                    ModelAndSerial = $"{model} / {serial}";
+                else
+                    ModelAndSerial = model;
+            }
+            else if (map.TryGetValue("SERIALNO", out var serialOnly))
+            {
+                ModelAndSerial = serialOnly;
+            }
+
+            if (map.TryGetValue("FIRMWARE", out var firmware))
+                FirmwareVersion = firmware;
+
             if (map.TryGetValue("TIMELEFT", out var tl))
             {
                 // TIMELEFT vem em minutos, ex: "45.0 Minutes"
@@ -317,6 +382,8 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             {
                 var nomParts = nomPower.Split(new[] { ' ', 'W', 'a', 't', 's' }, StringSplitOptions.RemoveEmptyEntries);
                 var loadParts = loadPct.Split(new[] { ' ', '%', '.' }, StringSplitOptions.RemoveEmptyEntries);
+
+                NominalPowerText = nomPower;
                 
                 if (nomParts.Length > 0 && double.TryParse(nomParts[0], out var nomW) &&
                     loadParts.Length > 0 && double.TryParse(loadParts[0], out var loadP))
@@ -339,16 +406,19 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     if (v < MinVoltage)
                     {
                         VoltageStatus = $"⚠️ SUB-TENSÃO ({v:F1}V < {MinVoltage}V)";
+                        VoltageStatusBrush = Brushes.Gold;
                         AddLogEntry($"⚠️ Sub-tensão detectada: {v:F1}V");
                     }
                     else if (v > MaxVoltage)
                     {
                         VoltageStatus = $"⚠️ SOBRE-TENSÃO ({v:F1}V > {MaxVoltage}V)";
+                        VoltageStatusBrush = Brushes.OrangeRed;
                         AddLogEntry($"⚠️ Sobre-tensão detectada: {v:F1}V");
                     }
                     else
                     {
                         VoltageStatus = $"✓ Normal ({v:F1}V)";
+                        VoltageStatusBrush = Brushes.LimeGreen;
                     }
                 }
                 else
@@ -434,6 +504,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                             var chargeRate = chargeDiff / timeDiff; // % por hora
                             var remainingCharge = 100 - currentCharge;
                             var estimatedHours = remainingCharge / chargeRate;
+                            ChargeRateText = $"Taxa de recarga: {chargeRate:F1}%/h";
                             
                             ChargeEstimate = estimatedHours < 24 
                                 ? $"{estimatedHours:F1} horas restantes" 
@@ -447,6 +518,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     if (currentCharge >= 99.9)
                     {
                         ChargeEstimate = "✓ Carga completa";
+                        ChargeRateText = "Taxa de recarga: concluída";
                         if (_chargingAfterBattery && _chargeStartTime.HasValue)
                         {
                             var elapsed = DateTime.Now - _chargeStartTime.Value;
@@ -460,6 +532,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     else if (!Status.Contains("ONLINE", StringComparison.OrdinalIgnoreCase))
                     {
                         ChargeEstimate = "Aguardando modo rede...";
+                        ChargeRateText = "Taxa de recarga: pausada";
                     }
                 }
             }
@@ -573,6 +646,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
 
     private void UpdateModeIndicator()
     {
+        if (ModeSubText != null)
+            ModeSubText.Text = $"Atualizado às {LastUpdateText}";
+
         if (Status.Contains("ONBATT", StringComparison.OrdinalIgnoreCase))
         {
             ModeIndicator.Background = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // Vermelho
@@ -597,6 +673,12 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            if (_client == null)
+            {
+                AddLogEntry("❌ Cliente NIS não inicializado para leitura de eventos.");
+                return;
+            }
+
             var events = await _client.GetEventsAsync();
             foreach (var evt in events.TakeLast(100))
             {
@@ -617,10 +699,30 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         
         if (LogEntries.Count > 500)
             LogEntries.RemoveAt(0);
-        
-        LogList.ItemsSource = LogEntries;
-        if (LogList.Items.Count > 0)
-            LogList.ScrollIntoView(LogList.Items[^1]);
+
+        if (LogList != null)
+        {
+            LogList.ItemsSource = LogEntries;
+            if (LogList.Items.Count > 0)
+                LogList.ScrollIntoView(LogList.Items[^1]);
+        }
+    }
+
+    private static string GetFriendlyStatus(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return "Sem status";
+
+        if (status.Contains("ONLINE", StringComparison.OrdinalIgnoreCase))
+            return "Online (Rede normal)";
+        if (status.Contains("ONBATT", StringComparison.OrdinalIgnoreCase))
+            return "Operando em bateria";
+        if (status.Contains("COMMLOST", StringComparison.OrdinalIgnoreCase))
+            return "Sem comunicação com o UPS";
+        if (status.Contains("LOWBATT", StringComparison.OrdinalIgnoreCase))
+            return "Bateria baixa";
+
+        return status;
     }
 
     private async void RefreshLogs_Click(object sender, RoutedEventArgs e)
@@ -640,5 +742,27 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     {
         _updateTimer?.Stop();
         base.OnClosed(e);
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+        else
+        {
+            DragMove();
+        }
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void CloseWindow_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
     }
 }

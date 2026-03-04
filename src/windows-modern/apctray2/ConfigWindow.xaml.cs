@@ -117,4 +117,26 @@ public partial class ConfigWindow : Window
         var result = await TelegramService.SendMessageAsync(token, chatId, "🧪 Teste de notificação do apctray2!");
         MessageBox.Show(result ? "✅ Mensagem enviada com sucesso!" : "❌ Falha ao enviar mensagem. Verifique o token e chat ID.");
     }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+        else
+        {
+            DragMove();
+        }
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void CloseWindow_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
 }
