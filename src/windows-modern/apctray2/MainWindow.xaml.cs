@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Net.Sockets;
 using System.Text;
 using System.Windows;
+using System.Windows.Data;
 
 namespace apctray2;
 
@@ -96,18 +97,42 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ReloadProfiles();
         ApplyTheme();
         _ = RefreshAsync();
+        
+        // Registrar listener para mudanças de perfil
+        AppEvents.ProfilesChanged += (s, e) =>
+        {
+            SimpleLogger.Info("MainWindow: ProfilesChanged event received");
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                ReloadProfiles();
+                RefreshClientFromSettings();
+                _ = RefreshAsync();
+            });
+        };
     }
 
     public void ReloadProfiles()
     {
+        SimpleLogger.Info("MainWindow.ReloadProfiles: Starting");
         _isUpdatingProfileSelection = true;
         AvailableProfiles.Clear();
+        SimpleLogger.Info($"MainWindow.ReloadProfiles: AvailableProfiles cleared, ProfileManager has {Settings.Current.ProfileManager.Profiles.Count} profiles");
 
         foreach (var profile in Settings.Current.ProfileManager.Profiles)
+        {
+            SimpleLogger.Info($"MainWindow.ReloadProfiles: Adding profile '{profile.Name}' (ID: {profile.Id})");
             AvailableProfiles.Add(profile);
+        }
 
         SelectedProfile = Settings.Current.ProfileManager.GetActiveProfile();
+        SimpleLogger.Info($"MainWindow.ReloadProfiles: SelectedProfile set to '{SelectedProfile?.Name}', total profiles in AvailableProfiles: {AvailableProfiles.Count}");
+
+        // Forca refresh do ComboBox para refletir mudanças de nome
+        CollectionViewSource.GetDefaultView(AvailableProfiles).Refresh();
+        UpsSelector?.Items.Refresh();
+        
         _isUpdatingProfileSelection = false;
+        SimpleLogger.Info("MainWindow.ReloadProfiles: Completed");
     }
 
     public void RefreshClientFromSettings()
@@ -251,7 +276,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void SelfTest_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show("Autoteste: a implementar (Fase 2)", "apctray2");
+        try
+        {
+            SimpleLogger.Info("MainWindow.SelfTest_Click: starting");
+            var testWindow = new SelfTestWindow(_client);
+            SimpleLogger.Info("MainWindow.SelfTest_Click: SelfTestWindow created");
+            testWindow.Owner = IsVisible ? this : null;
+            testWindow.ShowInTaskbar = true;
+            testWindow.Show();
+            testWindow.Activate();
+            SimpleLogger.Info("MainWindow.SelfTest_Click: SelfTestWindow shown");
+        }
+        catch (Exception ex)
+        {
+            SimpleLogger.Error(ex, "MainWindow.SelfTest_Click");
+            MessageBox.Show($"Erro ao abrir autoteste: {ex.Message}\n\nDetalhes: {ex.InnerException?.Message}", "apctray2", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     // Exposto para menu de tray

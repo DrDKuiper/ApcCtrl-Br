@@ -30,6 +30,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private readonly ObservableCollection<double> _allWattsData = new();
     
     private const int MaxDataPoints = 60; // 1 minuto a 1seg/ponto
+    private const int MaxHistoryPoints = 86400; // 24 horas a 1 ponto/segundo
     private TimeSpan _currentRange = TimeSpan.FromHours(1); // Default 1 hora
 
     // Monitoramento de tensão e bateria
@@ -46,8 +47,11 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     public ObservableCollection<string> LogEntries { get; } = new();
 
     // Propriedades vinculadas
-    private string _upsName = "<unknown>";
-    public string UpsName { get => _upsName; set { _upsName = value; OnPropertyChanged(nameof(UpsName)); } }
+    private string _upsProfileName = "<unknown>";
+    public string UpsProfileName { get => _upsProfileName; set { _upsProfileName = value; OnPropertyChanged(nameof(UpsProfileName)); } }
+
+    private string _upsDeviceName = "<unknown>";
+    public string UpsDeviceName { get => _upsDeviceName; set { _upsDeviceName = value; OnPropertyChanged(nameof(UpsDeviceName)); } }
 
     private string _status = "";
     public string Status
@@ -131,6 +135,9 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     private string _nisEndpoint = "--";
     public string NisEndpoint { get => _nisEndpoint; set { _nisEndpoint = value; OnPropertyChanged(nameof(NisEndpoint)); } }
 
+    private string _manufactureDate = "--";
+    public string ManufactureDate { get => _manufactureDate; set { _manufactureDate = value; OnPropertyChanged(nameof(ManufactureDate)); } }
+
     // Saúde da bateria
     private string _batteryHealthText = "--";
     public string BatteryHealthText { get => _batteryHealthText; set { _batteryHealthText = value; OnPropertyChanged(nameof(BatteryHealthText)); } }
@@ -164,6 +171,15 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 try
                 {
                     SimpleLogger.Info("AdvancedWindow: Loaded handler starting");
+                    
+                    // Registrar listener para mudanças de perfil
+                    AppEvents.ProfilesChanged += async (s2, e2) =>
+                    {
+                        SimpleLogger.Info("AdvancedWindow: ProfilesChanged event received");
+                        RefreshClientFromSettings();
+                        await UpdateDataAsync();
+                    };
+                    
                     _updateTimer?.Start();
                     await UpdateDataAsync();
                     await LoadLogsAsync();
@@ -194,11 +210,13 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
         {
             _client = new NisClient(active.Host, active.Port);
             NisEndpoint = $"{active.Host}:{active.Port}";
+            UpsProfileName = active.Name;
         }
         else
         {
             _client = new NisClient(Settings.Current.Host, Settings.Current.Port);
             NisEndpoint = $"{Settings.Current.Host}:{Settings.Current.Port}";
+            UpsProfileName = "Nobreak";
         }
     }
 
@@ -327,7 +345,7 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
             SimpleLogger.Info($"AdvancedWindow.UpdateDataAsync: received {map.Count} keys from NIS");
             LastUpdateText = DateTime.Now.ToString("HH:mm:ss");
             
-            if (map.TryGetValue("UPSNAME", out var name)) UpsName = name;
+            if (map.TryGetValue("UPSNAME", out var name)) UpsDeviceName = name;
             if (map.TryGetValue("STATUS", out var st)) Status = st;
             if (map.TryGetValue("MODEL", out var model))
             {
@@ -343,6 +361,11 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
 
             if (map.TryGetValue("FIRMWARE", out var firmware))
                 FirmwareVersion = firmware;
+
+            if (map.TryGetValue("MANDATE", out var mfgDate))
+                ManufactureDate = mfgDate;
+            else if (map.TryGetValue("DATE", out var altDate))
+                ManufactureDate = altDate;
 
             if (map.TryGetValue("TIMELEFT", out var tl))
             {
@@ -427,6 +450,16 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                 }
             }
             
+            // Limpar dados antigos para manter apenas histórico de 24 horas (MaxHistoryPoints)
+            if (_allBatteryData.Count > MaxHistoryPoints)
+            {
+                var excess = _allBatteryData.Count - MaxHistoryPoints;
+                for (int i = 0; i < excess; i++) _allBatteryData.RemoveAt(0);
+                for (int i = 0; i < excess; i++) _allLoadData.RemoveAt(0);
+                for (int i = 0; i < excess; i++) _allVoltageData.RemoveAt(0);
+                for (int i = 0; i < excess; i++) _allWattsData.RemoveAt(0);
+            }
+            
             // Aplicar filtro de range após todos os dados
             ApplyRangeFilter();
             
@@ -486,6 +519,33 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
                     : "N/A";
             }
             _wasOnBattery = isOnBattery;
+
+            // Atualizar painel de fluxo de energia do Dashboard (ícones, valores e animação).
+            if (EnergyFlowDash != null)
+            {
+                var statusText = map.TryGetValue("STATUS", out var currentStatus) ? currentStatus : string.Empty;
+                var gridAlert = VoltageStatus.Contains("SUB-TENSÃO", StringComparison.OrdinalIgnoreCase)
+                    || VoltageStatus.Contains("SOBRE-TENSÃO", StringComparison.OrdinalIgnoreCase)
+                    || statusText.Contains("TRIM", StringComparison.OrdinalIgnoreCase)
+                    || statusText.Contains("BOOST", StringComparison.OrdinalIgnoreCase);
+                var battAlert = statusText.Contains("LOWBATT", StringComparison.OrdinalIgnoreCase)
+                    || statusText.Contains("REPLACEBATT", StringComparison.OrdinalIgnoreCase);
+                var upsAlert = statusText.Contains("OVERLOAD", StringComparison.OrdinalIgnoreCase)
+                    || statusText.Contains("COMMFAULT", StringComparison.OrdinalIgnoreCase);
+
+                map["GRID_ALERT"] = gridAlert ? "1" : "0";
+                map["BATT_ALERT"] = battAlert ? "1" : "0";
+                map["UPS_ALERT"] = upsAlert ? "1" : "0";
+
+                try
+                {
+                    EnergyFlowDash.UpdateStatus(map);
+                }
+                catch (Exception ex)
+                {
+                    SimpleLogger.Error(ex, "AdvancedWindow: error updating EnergyFlowDash");
+                }
+            }
             
             // Estimar tempo de recarga
             if (map.TryGetValue("BCHARGE", out var bcharge))
@@ -596,7 +656,10 @@ public partial class AdvancedWindow : Window, INotifyPropertyChanged
     
     private void ApplyRangeFilter()
     {
-        var startIndex = Math.Max(0, _allBatteryData.Count - (int)(_currentRange.TotalSeconds / Settings.Current.RefreshSeconds));
+        // Dados são adicionados a cada 1 segundo, então o número de pontos
+        // a exibir é simplesmente o TotalSeconds do range (1 ponto/segundo)
+        var pointsToShow = (int)_currentRange.TotalSeconds;
+        var startIndex = Math.Max(0, _allBatteryData.Count - pointsToShow);
         
         _batteryData.Clear();
         _loadData.Clear();

@@ -11,7 +11,7 @@
         FontFamily="{StaticResource AppFont}">
 
   <Border Background="{StaticResource BgBaseBrush}" 
-          CornerRadius="12" 
+          CornerRadius="16" 
           BorderBrush="{StaticResource BorderSubtleBrush}" 
           BorderThickness="1">
     <Border.Effect>
@@ -38,56 +38,20 @@
 
       <!-- Content -->
       <TabControl Grid.Row="1" Margin="12,0,12,12">
-        <!-- Connection Tab -->
-        <TabItem Header="&#x1F50C; Conex&#xE3;o">
-          <Grid Margin="16">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="*"/>
-              <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <Grid Margin="0,0,0,12">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="100"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="Host:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
-              <TextBox x:Name="HostBox" Grid.Column="1"/>
-            </Grid>
-
-            <Grid Grid.Row="1" Margin="0,0,0,12">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="100"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="Porta:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
-              <TextBox x:Name="PortBox" Grid.Column="1"/>
-            </Grid>
-
-            <Grid Grid.Row="2" Margin="0,0,0,12">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="100"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="Atualização (s):" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
-              <TextBox x:Name="RefreshBox" Grid.Column="1"/>
-            </Grid>
-
-            <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-              <Button Content="Testar conexão" Click="Test_Click" Style="{StaticResource AccentButton}" Margin="0,0,8,0"/>
-              <Button Content="Cancelar" IsCancel="True" Style="{StaticResource ModernButton}" Margin="0,0,8,0"/>
-              <Button Content="Salvar" IsDefault="True" Click="Save_Click" Style="{StaticResource SuccessButton}"/>
-            </StackPanel>
-          </Grid>
-        </TabItem>
-        
         <!-- Limits Tab -->
         <TabItem Header="&#x1F4D0; Limites">
           <ScrollViewer>
             <StackPanel Margin="16">
+              <TextBlock Text="Atualização" FontWeight="Bold" Margin="0,0,0,10" Foreground="{StaticResource TextPrimaryBrush}"/>
+              <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Intervalo (s):" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                <TextBox x:Name="RefreshBox" Grid.Column="1"/>
+              </Grid>
+
               <TextBlock Text="Tensão (V)" FontWeight="Bold" Margin="0,0,0,10" Foreground="{StaticResource TextPrimaryBrush}"/>
               <Grid Margin="0,0,0,16">
                 <Grid.ColumnDefinitions>

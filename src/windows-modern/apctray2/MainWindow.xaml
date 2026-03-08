@@ -12,7 +12,7 @@
         FontFamily="{StaticResource AppFont}">
 
   <Border Background="{StaticResource BgBaseBrush}" 
-          CornerRadius="12" 
+          CornerRadius="16" 
           BorderBrush="{StaticResource BorderSubtleBrush}" 
           BorderThickness="1">
     <Border.Effect>
@@ -71,7 +71,10 @@
                       Margin="0,0,8,0"
                       ItemsSource="{Binding AvailableProfiles}"
                       SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
-                      DisplayMemberPath="Name"/>
+                      DisplayMemberPath="Name"
+                      Background="{StaticResource BgInputBrush}"
+                      Foreground="{StaticResource TextPrimaryBrush}"
+                      BorderBrush="{StaticResource BorderSubtleBrush}"/>
             <ToggleButton x:Name="ThemeToggle" 
                           Width="40" Height="30"
                           Content="&#x263E;"                          IsChecked="{Binding IsDarkMode, Mode=TwoWay}"

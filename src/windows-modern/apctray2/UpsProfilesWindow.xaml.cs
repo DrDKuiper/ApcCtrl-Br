@@ -18,7 +18,11 @@ public partial class UpsProfilesWindow : Window
 
     private void LoadProfiles()
     {
+        // Força um refresh visual ao limpar e redefiner o ItemsSource
+        // Isso garante que as mudanças em propriedades individuais sejam visíveis
+        ProfilesList.ItemsSource = null;
         ProfilesList.ItemsSource = Settings.Current.ProfileManager.Profiles;
+        System.Windows.Data.CollectionViewSource.GetDefaultView(ProfilesList.ItemsSource).Refresh();
         ProfilesList.SelectedItem = Settings.Current.ProfileManager.GetActiveProfile();
         UpdateStatus();
     }
@@ -50,8 +54,10 @@ public partial class UpsProfilesWindow : Window
         {
             Settings.Current.ProfileManager.AddProfile(dialog.Profile);
             Settings.Current.Save();
+            SimpleLogger.Info($"UpsProfilesWindow: Added profile '{dialog.Profile.Name}'");
             LoadProfiles();
             _tray.RefreshClientFromSettings();
+            AppEvents.NotifyProfilesChanged();
         }
     }
 
@@ -59,21 +65,40 @@ public partial class UpsProfilesWindow : Window
     {
         if (ProfilesList.SelectedItem is not UpsProfile profile) return;
 
+        SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: Starting edit for profile '{profile.Name}'");
+        var oldName = profile.Name;
+        
         var dialog = new UpsProfileEditDialog(profile);
         if (dialog.ShowDialog() == true && dialog.Profile != null)
         {
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: Dialog returned OK, old name='{oldName}', new name='{dialog.Profile.Name}'");
+            
             profile.Name = dialog.Profile.Name;
             profile.Host = dialog.Profile.Host;
             profile.Port = dialog.Profile.Port;
             profile.Description = dialog.Profile.Description;
+            
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: Properties updated, profile.Name is now '{profile.Name}'");
+            
             Settings.Current.Save();
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: Settings saved");
+            
             LoadProfiles();
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: LoadProfiles() called");
 
             var active = Settings.Current.ProfileManager.GetActiveProfile();
             if (active != null && active.Id == profile.Id)
             {
                 _tray.RefreshClientFromSettings();
+                SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: RefreshClientFromSettings() called for active profile");
             }
+            
+            AppEvents.NotifyProfilesChanged();
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: AppEvents.NotifyProfilesChanged() called");
+        }
+        else
+        {
+            SimpleLogger.Info($"UpsProfilesWindow.Edit_Click: Dialog was cancelled or returned null");
         }
     }
 
@@ -98,8 +123,10 @@ public partial class UpsProfilesWindow : Window
         {
             Settings.Current.ProfileManager.RemoveProfile(profile.Id);
             Settings.Current.Save();
+            SimpleLogger.Info($"UpsProfilesWindow: Deleted profile '{profile.Name}'");
             LoadProfiles();
             _tray.RefreshClientFromSettings();
+            AppEvents.NotifyProfilesChanged();
         }
     }
 
@@ -109,12 +136,14 @@ public partial class UpsProfilesWindow : Window
 
         Settings.Current.ProfileManager.SetActiveProfile(profile.Id);
         Settings.Current.Save();
+        SimpleLogger.Info($"UpsProfilesWindow: Activated profile '{profile.Name}'");
         _tray.RefreshClientFromSettings();
         
         MessageBox.Show($"Perfil '{profile.Name}' ativado!\n\nDados atualizados imediatamente.", 
             "Perfil Ativado", MessageBoxButton.OK, MessageBoxImage.Information);
         
         LoadProfiles();
+        AppEvents.NotifyProfilesChanged();
     }
 
     private async void Test_Click(object sender, RoutedEventArgs e)

@@ -11,7 +11,7 @@
         FontFamily="{StaticResource AppFont}">
 
   <Border Background="{StaticResource BgBaseBrush}" 
-          CornerRadius="12" 
+          CornerRadius="16" 
           BorderBrush="{StaticResource BorderSubtleBrush}" 
           BorderThickness="1">
     <Border.Effect>

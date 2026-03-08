@@ -46,7 +46,7 @@ namespace apctray2 {
         /// InitializeComponent
         /// </summary>
         [System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "8.0.24.0")]
+        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.10.0")]
         public void InitializeComponent() {
             if (_contentLoaded) {
                 return;
@@ -66,7 +66,7 @@ namespace apctray2 {
         /// </summary>
         [System.STAThreadAttribute()]
         [System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "8.0.24.0")]
+        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.10.0")]
         public static void Main() {
             apctray2.App app = new apctray2.App();
             app.InitializeComponent();

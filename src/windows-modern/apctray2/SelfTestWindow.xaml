@@ -1,0 +1,101 @@
+<Window x:Class="apctray2.SelfTestWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Autoteste do UPS" Height="500" Width="700"
+        MinHeight="400" MinWidth="600"
+        WindowStartupLocation="CenterScreen"
+        Background="Transparent"
+        AllowsTransparency="True"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
+        Loaded="Window_Loaded"
+        FontFamily="{StaticResource AppFont}">
+
+  <Border Background="{StaticResource BgBaseBrush}" 
+          CornerRadius="16" 
+          BorderBrush="{StaticResource BorderSubtleBrush}" 
+          BorderThickness="1">
+    <Border.Effect>
+      <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="3" Opacity="0.5" BlurRadius="16"/>
+    </Border.Effect>
+    
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="40"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+
+      <!-- Title Bar -->
+      <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+        <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+          <Ellipse Width="8" Height="8" Fill="{StaticResource CyanBrush}" Margin="0,0,8,0"/>
+          <TextBlock Text="🧪 Autoteste do UPS" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
+          <Button Content="&#x2500;" Style="{StaticResource TitleBarButton}" Click="Minimize_Click" FontFamily="Segoe UI" FontSize="14"/>
+          <Button Content="&#x2715;" Style="{StaticResource CloseButton}" Click="CloseWindow_Click" FontFamily="Segoe UI" FontSize="12" Margin="4,0,0,0"/>
+        </StackPanel>
+      </Grid>
+
+      <!-- Content -->
+      <Grid Grid.Row="1" Margin="16,4,16,16">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+          <TextBlock Text="Resultados do Autoteste" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+          <TextBlock x:Name="StatusText" Text="Executando testes..." FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+
+        <!-- Results -->
+        <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="12">
+              <!-- Conectividade -->
+              <StackPanel Margin="0,0,0,16">
+                <TextBlock Text="🔌 Conectividade" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ConnectivityResult" Text="Testando..." Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+              </StackPanel>
+
+              <!-- Status do UPS -->
+              <StackPanel Margin="0,0,0,16">
+                <TextBlock Text="⚡ Status do UPS" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="UpsStatusResult" Text="Testando..." Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+              </StackPanel>
+
+              <!-- Bateria -->
+              <StackPanel Margin="0,0,0,16">
+                <TextBlock Text="🔋 Bateria" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="BatteryResult" Text="Testando..." Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+              </StackPanel>
+
+              <!-- Energia -->
+              <StackPanel Margin="0,0,0,16">
+                <TextBlock Text="⚙️ Energia" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                <TextBlock x:Name="PowerResult" Text="Testando..." Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+              </StackPanel>
+
+              <!-- Resumo -->
+              <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Background="{StaticResource BgInputBrush}">
+                <StackPanel>
+                  <TextBlock Text="📋 Resumo" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+                  <TextBlock x:Name="SummaryResult" Text="Aguardando resultados..." Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+          <Button Content="🔄 Repetir Teste" Click="Retry_Click" Style="{StaticResource ModernButton}" Margin="0,0,8,0"/>
+          <Button Content="✓ Fechar" Click="CloseWindow_Click" Style="{StaticResource ModernButton}"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

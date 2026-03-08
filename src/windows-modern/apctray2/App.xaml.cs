@@ -13,6 +13,7 @@ public partial class App : Application
 		base.OnStartup(e);
 
 		SimpleLogger.Info("apctray2 starting up");
+		SimpleLogger.Info($"Log file: {SimpleLogger.GetLogPath()}");
 
 		// Keep app alive without windows
 		ShutdownMode = ShutdownMode.OnExplicitShutdown;

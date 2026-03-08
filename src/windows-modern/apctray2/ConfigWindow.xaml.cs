@@ -10,10 +10,7 @@ public partial class ConfigWindow : Window
     {
         InitializeComponent();
         _tray = tray;
-        
-        // Conexão
-        HostBox.Text = Settings.Current.Host;
-        PortBox.Text = Settings.Current.Port.ToString();
+
         RefreshBox.Text = Settings.Current.RefreshSeconds.ToString();
         
         // Limites
@@ -38,20 +35,12 @@ public partial class ConfigWindow : Window
     {
         try
         {
-            // Conexão
-            if (!int.TryParse(PortBox.Text, out var port) || port <= 0 || port > 65535)
-            {
-                MessageBox.Show("Porta inválida.");
-                return;
-            }
             if (!int.TryParse(RefreshBox.Text, out var refresh) || refresh < 1)
             {
                 MessageBox.Show("Intervalo de atualização inválido.");
                 return;
             }
-            
-            Settings.Current.Host = HostBox.Text.Trim();
-            Settings.Current.Port = port;
+
             Settings.Current.RefreshSeconds = refresh;
             
             // Limites
@@ -80,26 +69,6 @@ public partial class ConfigWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show($"Erro ao salvar: {ex.Message}");
-        }
-    }
-
-    private async void Test_Click(object sender, RoutedEventArgs e)
-    {
-        var host = HostBox.Text.Trim();
-        if (!int.TryParse(PortBox.Text, out var port) || port <= 0 || port > 65535)
-        {
-            MessageBox.Show("Porta inválida.");
-            return;
-        }
-        var client = new NisClient(host, port);
-        try
-        {
-            var ok = await client.TestAsync(2000);
-            MessageBox.Show(ok ? "Conectado ao NIS!" : "Sem resposta do NIS.");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Falha: {ex.Message}");
         }
     }
     
