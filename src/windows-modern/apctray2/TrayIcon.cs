@@ -65,83 +65,35 @@ public sealed class TrayIcon : IDisposable
     menu.Items.Add(_summaryItem);
     menu.Items.Add(new Separator());
 
-    // Dashboard - BarChart icon
-    var dashItem = new MenuItem { Command = new RelayCommand(_ => ShowAdvancedWindow()) };
-    var dashPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    dashPanel.Children.Add(CreateMenuIcon("M3,3 L9,3 L9,13 L3,13 Z M10,5 L16,5 L16,13 L10,13 Z M17,7 L23,7 L23,13 L17,13 Z"));
-    dashPanel.Children.Add(new TextBlock { Text = "Dashboard Avançado", VerticalAlignment = VerticalAlignment.Center });
-    dashItem.Header = dashPanel;
-    menu.Items.Add(dashItem);
-
-    // Eventos - Calendar/List icon
-    var eventsItem = new MenuItem { Command = new RelayCommand(_ => new EventsWindow(this).Show()) };
-    var eventsPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    eventsPanel.Children.Add(CreateMenuIcon("M6,1 L6,3 M18,1 L18,3 M3,4 L21,4 L21,22 L3,22 Z M3,9 L21,9"));
-    eventsPanel.Children.Add(new TextBlock { Text = "Eventos", VerticalAlignment = VerticalAlignment.Center });
-    eventsItem.Header = eventsPanel;
-    menu.Items.Add(eventsItem);
-
-    // Configurações - Gear icon
-    var configItem = new MenuItem { Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) };
-    var configPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    configPanel.Children.Add(CreateMenuIcon("M12,8 A4,4 0 1,1 12,16 A4,4 0 1,1 12,8 M12,1 L13.5,6 L18,4.5 L16.5,9 L21,10.5 L17,12 L21,13.5 L16.5,15 L18,19.5 L13.5,18 L12,23 L10.5,18 L6,19.5 L7.5,15 L3,13.5 L7,12 L3,10.5 L7.5,9 L6,4.5 L10.5,6 Z"));
-    configPanel.Children.Add(new TextBlock { Text = "Configurações", VerticalAlignment = VerticalAlignment.Center });
-    configItem.Header = configPanel;
-    menu.Items.Add(configItem);
-
-    // Detectar - Search/Plug icon
-    var detectItem = new MenuItem { Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) };
-    var detectPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    detectPanel.Children.Add(CreateMenuIcon("M16,6 L22,12 L16,18 M8,6 L2,12 L8,18 M22,12 L8,12 M12,12 A2,2 0 1,1 12,12"));
-    detectPanel.Children.Add(new TextBlock { Text = "Detectar Nobreak (COM)", VerticalAlignment = VerticalAlignment.Center });
-    detectItem.Header = detectPanel;
-    menu.Items.Add(detectItem);
-
-    // Gerenciar - Server/Database icon
-    var manageItem = new MenuItem { Command = new RelayCommand(_ => new UpsProfilesWindow(this).ShowDialog()) };
-    var managePanel = new StackPanel { Orientation = Orientation.Horizontal };
-    managePanel.Children.Add(CreateMenuIcon("M3,3 L21,3 L21,8 L3,8 Z M3,10 L21,10 L21,15 L3,15 Z M3,17 L21,17 L21,22 L3,22 Z M5,5 L7,5 M5,12 L7,12 M5,19 L7,19"));
-    managePanel.Children.Add(new TextBlock { Text = "Gerenciar Nobreaks (NIS)", VerticalAlignment = VerticalAlignment.Center });
-    manageItem.Header = managePanel;
-    menu.Items.Add(manageItem);
-
-    // Autoteste - Lightning/Bolt icon
-    var testItem = new MenuItem { Command = new RelayCommand(_ => _window.SelfTest_Relay()) };
-    var testPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    testPanel.Children.Add(CreateMenuIcon("M13,2 L3,14 L10,14 L8,22 L18,10 L11,10 Z"));
-    testPanel.Children.Add(new TextBlock { Text = "Autoteste", VerticalAlignment = VerticalAlignment.Center });
-    testItem.Header = testPanel;
-    menu.Items.Add(testItem);
+    menu.Items.Add(new MenuItem { Header = "📊 Dashboard Avançado", Command = new RelayCommand(_ => ShowAdvancedWindow()) });
+    menu.Items.Add(new MenuItem { Header = "📅 Eventos", Command = new RelayCommand(_ => new EventsWindow(this).Show()) });
+    menu.Items.Add(new MenuItem { Header = "⚙️ Configurações", Command = new RelayCommand(_ => new ConfigWindow(this).ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "🔌 Detectar Nobreak (COM)", Command = new RelayCommand(_ => new PortDetectWindow().ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "🏢 Gerenciar Nobreaks (NIS)", Command = new RelayCommand(_ => new UpsProfilesWindow(this).ShowDialog()) });
+    menu.Items.Add(new MenuItem { Header = "🧪 Autoteste", Command = new RelayCommand(_ => _window.SelfTest_Relay()) });
     
     MenuItem autoStartItem = null!;
     autoStartItem = new MenuItem 
     { 
+        Header = (AutoStartManager.IsEnabled() ? "✅ " : "⬜ ") + "Iniciar com o Windows",
         Command = new RelayCommand(_ => 
         {
             if (AutoStartManager.IsEnabled())
             {
                 AutoStartManager.Disable();
-                UpdateAutoStartIcon(autoStartItem, false);
+                autoStartItem.Header = "⬜ Iniciar com o Windows";
             }
             else
             {
                 AutoStartManager.Enable();
-                UpdateAutoStartIcon(autoStartItem, true);
+                autoStartItem.Header = "✅ Iniciar com o Windows";
             }
         })
     };
-    UpdateAutoStartIcon(autoStartItem, AutoStartManager.IsEnabled());
     menu.Items.Add(autoStartItem);
     
     menu.Items.Add(new Separator());
-    
-    // Sair - Exit icon
-    var exitItem = new MenuItem { Command = new RelayCommand(_ => Application.Current.Shutdown()) };
-    var exitPanel = new StackPanel { Orientation = Orientation.Horizontal };
-    exitPanel.Children.Add(CreateMenuIcon("M16,17 L21,12 L16,7 M21,12 L9,12 M9,3 L5,3 L5,21 L9,21"));
-    exitPanel.Children.Add(new TextBlock { Text = "Sair", VerticalAlignment = VerticalAlignment.Center });
-    exitItem.Header = exitPanel;
-    menu.Items.Add(exitItem);
+    menu.Items.Add(new MenuItem { Header = "❌ Sair", Command = new RelayCommand(_ => Application.Current.Shutdown()) });
         _icon.ContextMenu = menu;
 
         _icon.TrayMouseDoubleClick += (s, e) => ShowAdvancedWindow();
